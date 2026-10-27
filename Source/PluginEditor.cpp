@@ -266,10 +266,11 @@ void PiradexMVAudioProcessorEditor::drawPiradexLogo (Graphics& g, Rectangle<floa
 {
     // losango estilizado "P" do Piradex
     Path dia;
-    dia.addQuadrilateral (b.getCentreX(), b.getY(),
-                          b.getRight(),   b.getCentreY(),
-                          b.getCentreX(), b.getBottom(),
-                          b.getX(),       b.getCentreY());
+    dia.startNewSubPath (b.getCentreX(), b.getY());
+    dia.lineTo (b.getRight(),   b.getCentreY());
+    dia.lineTo (b.getCentreX(), b.getBottom());
+    dia.lineTo (b.getX(),       b.getCentreY());
+    dia.closeSubPath();
     g.setColour (col);
     g.strokePath (dia, PathStrokeType (2.0f));
     g.setFont (Font (b.getHeight()*0.5f, Font::bold));
