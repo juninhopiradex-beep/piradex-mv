@@ -1,0 +1,33 @@
+name: Build Piradex MV (macOS — VST3 + AU)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+
+      - name: Build (Release)
+        run: cmake --build build --config Release
+
+      - name: Collect plugins
+        run: |
+          mkdir -p out
+          find build -name "*.component" -exec cp -R {} out/ \; || true
+          find build -name "*.vst3"      -exec cp -R {} out/ \; || true
+          find build -name "*.app"       -exec cp -R {} out/ \; || true
+          ls -R out
+
+      - name: Upload artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: PiradexMV-macOS
+          path: out/
