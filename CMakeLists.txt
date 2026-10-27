@@ -27,6 +27,8 @@ juce_add_plugin(PiradexMV
     COPY_PLUGIN_AFTER_BUILD   TRUE
 )
 
+juce_generate_juce_header(PiradexMV)
+
 target_sources(PiradexMV PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
