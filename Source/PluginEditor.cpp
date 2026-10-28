@@ -202,23 +202,37 @@ void PiradexMVAudioProcessorEditor::timerCallback()
 //==============================================================================
 void PiradexMVAudioProcessorEditor::drawBeatfreakLogo (juce::Graphics& g, juce::Rectangle<float> r)
 {
-    auto bars = r.removeFromLeft (26.0f);
-    float bw = 2.6f, x = bars.getX(), cy = bars.getCentreY();
-    const float hs[] = { 0.4f,0.8f,0.55f,1.0f,0.7f,0.35f };
-    for (float hf : hs)
-    {
-        float hh = bars.getHeight() * hf;
-        g.setColour (th.blue);
-        g.fillRoundedRectangle (x, cy - hh*0.5f, bw, hh, 1.0f);
-        x += bw + 2.0f;
-    }
-    r.removeFromLeft (4.0f);
-    g.setColour (th.text);
-    g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
-    g.drawText ("BEATFREAK", r.removeFromTop (r.getHeight()*0.6f), juce::Justification::bottomLeft);
+    // "by Piradex" com um pequeno losango azul, alinhado à direita
+    juce::Font fby (juce::FontOptions (12.0f));
+    juce::Font fnm (juce::FontOptions (16.0f, juce::Font::bold));
+    const juce::String by = "by ", nm = "Piradex";
+    float wby = fby.getStringWidthFloat (by);
+    float wnm = fnm.getStringWidthFloat (nm);
+    const float dia = 12.0f, gap = 8.0f;
+    float blockW = dia + gap + wby + wnm;
+    float x = r.getRight() - blockW;
+    float cy = r.getCentreY();
+
+    juce::Rectangle<float> d (x, cy - dia*0.5f, dia, dia);
+    juce::Path dp;
+    dp.startNewSubPath (d.getCentreX(), d.getY());
+    dp.lineTo (d.getRight(), d.getCentreY());
+    dp.lineTo (d.getCentreX(), d.getBottom());
+    dp.lineTo (d.getX(), d.getCentreY());
+    dp.closeSubPath();
+    juce::ColourGradient dg (th.blue.brighter (0.3f), d.getX(), d.getY(),
+                             th.blue.darker (0.3f), d.getRight(), d.getBottom(), false);
+    g.setGradientFill (dg); g.fillPath (dp);
+    g.setColour (juce::Colours::white.withAlpha (0.5f));
+    g.strokePath (dp, juce::PathStrokeType (1.0f));
+
+    x += dia + gap;
     g.setColour (th.textDim);
-    g.setFont (juce::Font (juce::FontOptions (8.5f)));
-    g.drawText ("BY PIRADEX", r, juce::Justification::topLeft);
+    g.setFont (fby);
+    g.drawText (by, x, r.getY(), wby + 2.0f, r.getHeight(), juce::Justification::centredLeft);
+    g.setColour (th.text);
+    g.setFont (fnm);
+    g.drawText (nm, x + wby, r.getY(), wnm + 4.0f, r.getHeight(), juce::Justification::centredLeft);
 }
 
 void PiradexMVAudioProcessorEditor::drawHeader (juce::Graphics& g, juce::Rectangle<int> area)
