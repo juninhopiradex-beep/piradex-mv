@@ -148,17 +148,45 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Enable long paths
+        shell: pwsh
+        run: |
+          git config --global core.longpaths true
+          New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+            -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force | Out-Null
+
       - name: Configure
-        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+        shell: pwsh
+        run: cmake -B C:/b -G "Visual Studio 17 2022" -A x64
 
       - name: Build (Release)
-        run: cmake --build build --config Release
+        shell: pwsh
+        run: cmake --build C:/b --config Release
+
+      - name: Capture logs on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          Copy-Item C:/b/CMakeFiles/CMakeError.log  win-CMakeError.log  -ErrorAction SilentlyContinue
+          Copy-Item C:/b/CMakeFiles/CMakeOutput.log win-CMakeOutput.log -ErrorAction SilentlyContinue
+          "see attached logs" | Out-File win-note.txt
+
+      - name: Publish logs on failure
+        if: failure()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: winlogs
+          name: Windows build logs
+          files: |
+            win-CMakeError.log
+            win-CMakeOutput.log
+            win-note.txt
 
       - name: Collect VST3
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path out | Out-Null
-          $vst3 = Get-ChildItem -Path build -Recurse -Directory -Filter "LEVEL-X.vst3" | Select-Object -First 1
+          $vst3 = Get-ChildItem -Path C:/b -Recurse -Directory -Filter "LEVEL-X.vst3" | Select-Object -First 1
           if (-not $vst3) { throw "LEVEL-X.vst3 não encontrado" }
           Copy-Item -Recurse -Force $vst3.FullName "out\LEVEL-X.vst3"
           Get-ChildItem -Recurse out | Select-Object FullName
