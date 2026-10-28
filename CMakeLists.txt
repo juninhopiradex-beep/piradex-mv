@@ -19,8 +19,8 @@ juce_add_plugin(PiradexMV
     PLUGIN_MANUFACTURER_CODE  Bfrk
     PLUGIN_CODE               Pmv2
     FORMATS                   AU VST3 Standalone
-    PRODUCT_NAME             "Piradex MV"
-    BUNDLE_ID                "com.beatfreak.piradexmv"
+    PRODUCT_NAME             "LEVEL-X"
+    BUNDLE_ID                "com.beatfreak.levelx"
     IS_SYNTH                  FALSE
     NEEDS_MIDI_INPUT          FALSE
     NEEDS_MIDI_OUTPUT         FALSE

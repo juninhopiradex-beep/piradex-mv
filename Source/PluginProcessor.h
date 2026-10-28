@@ -51,6 +51,7 @@ private:
 
     juce::dsp::Oversampling<float>* currentOS (int factor);
     void setEngineRate (double effectiveSR);
+    void processChannels (float* const* chans, int numCh, int ns, int mode);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PiradexMVAudioProcessor)
 };

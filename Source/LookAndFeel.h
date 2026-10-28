@@ -2,22 +2,24 @@
 #include <JuceHeader.h>
 
 //==============================================================================
-//  Paleta (a condizer com o mockup: charcoal escuro + dourado + azul Piradex)
+//  LEVEL-X — paleta azul crómio
 //==============================================================================
 namespace MVColours
 {
-    const juce::Colour bg        { 0xff0e1116 };   // fundo geral
-    const juce::Colour panel     { 0xff161b22 };   // painéis
-    const juce::Colour panelHi   { 0xff1c232c };   // painel claro
-    const juce::Colour stroke    { 0xff2a323d };   // bordas
-    const juce::Colour gold      { 0xffe3a63b };   // dourado (faders/knobs)
-    const juce::Colour goldHi    { 0xfff5c76a };   // dourado claro
-    const juce::Colour blue      { 0xff3d7bd6 };   // azul Piradex
-    const juce::Colour text      { 0xffd7dde4 };   // texto
-    const juce::Colour textDim   { 0xff8a95a1 };   // texto esbatido
-    const juce::Colour meterGrn  { 0xff35c08a };
-    const juce::Colour meterYel  { 0xffe8c84a };
-    const juce::Colour meterRed  { 0xffe2574c };
+    const juce::Colour panel      { 0xff0e1116 }; // fundo quase preto azulado
+    const juce::Colour panelHi    { 0xff1a2029 };
+    const juce::Colour slot       { 0xff05070a }; // calhas / recessos
+    const juce::Colour stroke     { 0xff2a333f };
+    const juce::Colour text       { 0xffd7e3ef };
+    const juce::Colour textDim    { 0xff7d8a99 };
+
+    const juce::Colour accent     { 0xff2f9fe6 }; // azul LEVEL-X
+    const juce::Colour accentHi   { 0xff67c7ff }; // azul claro (glow)
+    const juce::Colour accentDeep { 0xff1663a8 };
+
+    const juce::Colour chromeHi   { 0xffe9eef4 };
+    const juce::Colour chromeMid  { 0xff8d99a7 };
+    const juce::Colour chromeLo   { 0xff2b333d };
 }
 
 //==============================================================================
@@ -26,117 +28,128 @@ class MVLookAndFeel : public juce::LookAndFeel_V4
 public:
     MVLookAndFeel()
     {
-        setColour (juce::Slider::textBoxTextColourId, MVColours::gold);
-        setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-        setColour (juce::ComboBox::backgroundColourId, MVColours::panelHi);
-        setColour (juce::ComboBox::textColourId, MVColours::text);
-        setColour (juce::ComboBox::outlineColourId, MVColours::stroke);
-        setColour (juce::ComboBox::arrowColourId, MVColours::textDim);
-        setColour (juce::PopupMenu::backgroundColourId, MVColours::panelHi);
-        setColour (juce::PopupMenu::textColourId, MVColours::text);
-        setColour (juce::PopupMenu::highlightedBackgroundColourId, MVColours::gold.withAlpha (0.25f));
+        setColour (juce::Slider::textBoxTextColourId,       MVColours::text);
+        setColour (juce::Slider::textBoxOutlineColourId,    juce::Colours::transparentBlack);
+        setColour (juce::Label::textColourId,               MVColours::text);
+        setColour (juce::ComboBox::backgroundColourId,      MVColours::slot);
+        setColour (juce::ComboBox::textColourId,            MVColours::text);
+        setColour (juce::ComboBox::outlineColourId,         MVColours::stroke);
+        setColour (juce::PopupMenu::backgroundColourId,     MVColours::panelHi);
+        setColour (juce::PopupMenu::textColourId,           MVColours::text);
+        setColour (juce::PopupMenu::highlightedBackgroundColourId, MVColours::accentDeep);
     }
 
-    //-------------------------------------------------- fader vertical
+    //========================================================================
+    // FADER vertical — calha recessada + knob azul brilhante
     void drawLinearSlider (juce::Graphics& g, int x, int y, int w, int h,
                            float pos, float, float,
-                           juce::Slider::SliderStyle, juce::Slider&) override
+                           juce::Slider::SliderStyle, juce::Slider& s) override
     {
-        auto cx = x + w * 0.5f;
-        const float trackW = 6.0f;
+        auto cx = (float) x + (float) w * 0.5f;
+        const float trackW = 8.0f;
+        juce::Rectangle<float> track (cx - trackW*0.5f, (float) y, trackW, (float) h);
 
         // calha
-        juce::Rectangle<float> track (cx - trackW*0.5f, (float) y, trackW, (float) h);
-        g.setColour (MVColours::bg);
-        g.fillRoundedRectangle (track, 3.0f);
+        g.setColour (MVColours::slot);
+        g.fillRoundedRectangle (track, trackW*0.5f);
         g.setColour (MVColours::stroke);
-        g.drawRoundedRectangle (track, 3.0f, 1.0f);
+        g.drawRoundedRectangle (track, trackW*0.5f, 1.0f);
 
-        // preenchimento dourado (do centro 0 dB até à posição)
-        float zeroY = y + h * 0.5f;   // 0 dB aprox. ao centro da escala visual
-        float top = juce::jmin (pos, zeroY);
-        float bot = juce::jmax (pos, zeroY);
-        g.setColour (MVColours::gold.withAlpha (0.9f));
-        g.fillRoundedRectangle (cx - trackW*0.5f, top, trackW, bot - top, 3.0f);
+        // preenchimento azul de baixo até ao cursor (glow)
+        juce::Rectangle<float> fill (track.getX(), pos, trackW, track.getBottom() - pos);
+        if (fill.getHeight() > 0)
+        {
+            juce::ColourGradient grad (MVColours::accentHi, fill.getCentreX(), fill.getY(),
+                                       MVColours::accentDeep, fill.getCentreX(), fill.getBottom(), false);
+            g.setGradientFill (grad);
+            g.fillRoundedRectangle (fill, trackW*0.5f);
+        }
 
-        // thumb metálico
-        const float tw = 26.0f, th = 13.0f;
-        juce::Rectangle<float> thumb (cx - tw*0.5f, pos - th*0.5f, tw, th);
-        juce::ColourGradient grad (juce::Colour(0xff4a4f57), thumb.getX(), thumb.getY(),
-                                   juce::Colour(0xff23272d), thumb.getX(), thumb.getBottom(), false);
-        g.setGradientFill (grad);
-        g.fillRoundedRectangle (thumb, 3.0f);
-        g.setColour (MVColours::goldHi);
-        g.fillRect (thumb.getX()+3.0f, thumb.getCentreY()-0.5f, tw-6.0f, 1.5f);
-        g.setColour (juce::Colours::black.withAlpha (0.5f));
-        g.drawRoundedRectangle (thumb, 3.0f, 1.0f);
-    }
+        // thumb
+        const float thumbW = (float) w * 0.72f;
+        const float thumbH = 22.0f;
+        juce::Rectangle<float> thumb (cx - thumbW*0.5f, pos - thumbH*0.5f, thumbW, thumbH);
 
-    //-------------------------------------------------- knob rotativo metálico
-    void drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h,
-                           float posProp, float startA, float endA,
-                           juce::Slider& s) override
-    {
-        auto b = juce::Rectangle<float> (x, y, w, h).reduced (6.0f);
-        auto r = juce::jmin (b.getWidth(), b.getHeight()) * 0.5f;
-        auto c = b.getCentre();
-        auto ang = startA + posProp * (endA - startA);
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.fillRoundedRectangle (thumb.translated (0, 2.0f), 5.0f);
 
-        // arco de fundo
-        juce::Path bgArc;
-        bgArc.addCentredArc (c.x, c.y, r, r, 0.0f, startA, endA, true);
-        g.setColour (MVColours::stroke);
-        g.strokePath (bgArc, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved,
-                                                   juce::PathStrokeType::rounded));
-        // arco dourado até ao valor
-        juce::Path valArc;
-        valArc.addCentredArc (c.x, c.y, r, r, 0.0f, startA, ang, true);
-        g.setColour (MVColours::gold);
-        g.strokePath (valArc, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved,
-                                                    juce::PathStrokeType::rounded));
+        juce::ColourGradient tg (MVColours::chromeHi, thumb.getX(), thumb.getY(),
+                                 MVColours::chromeLo, thumb.getX(), thumb.getBottom(), false);
+        tg.addColour (0.5, MVColours::chromeMid);
+        g.setGradientFill (tg);
+        g.fillRoundedRectangle (thumb, 5.0f);
 
-        // corpo metálico
-        auto body = b.reduced (r * 0.28f);
-        juce::ColourGradient grad (juce::Colour(0xff5a616b), body.getX(), body.getY(),
-                                   juce::Colour(0xff20262e), body.getX(), body.getBottom(), false);
-        g.setGradientFill (grad);
-        g.fillEllipse (body);
-        g.setColour (juce::Colours::black.withAlpha (0.45f));
-        g.drawEllipse (body, 1.2f);
+        // linha central azul brilhante no thumb
+        g.setColour (MVColours::accentHi);
+        g.fillRoundedRectangle (thumb.getX()+3.0f, thumb.getCentreY()-1.5f,
+                                thumb.getWidth()-6.0f, 3.0f, 1.5f);
+        g.setColour (juce::Colours::white.withAlpha (0.25f));
+        g.fillRoundedRectangle (thumb.getX()+2.0f, thumb.getY()+2.0f, thumb.getWidth()-4.0f, 2.0f, 1.0f);
 
-        // ponteiro dourado
-        juce::Path ptr;
-        float pr = body.getWidth() * 0.5f;
-        ptr.startNewSubPath (c.x, c.y);
-        ptr.lineTo (c.x + pr * 0.82f * std::cos (ang - juce::MathConstants<float>::halfPi),
-                    c.y + pr * 0.82f * std::sin (ang - juce::MathConstants<float>::halfPi));
-        g.setColour (MVColours::goldHi);
-        g.strokePath (ptr, juce::PathStrokeType (2.6f, juce::PathStrokeType::curved,
-                                                 juce::PathStrokeType::rounded));
         juce::ignoreUnused (s);
     }
 
-    //-------------------------------------------------- botões toggle
-    void drawButtonBackground (juce::Graphics& g, juce::Button& b,
-                               const juce::Colour&, bool, bool isDown) override
+    //========================================================================
+    // KNOB rotativo crómio com anel pontilhado azul
+    void drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h,
+                           float posProp, float startAng, float endAng,
+                           juce::Slider&) override
     {
-        auto r = b.getLocalBounds().toFloat().reduced (1.0f);
-        bool on = b.getToggleState();
-        auto fill = on ? MVColours::gold.withAlpha (0.90f)
-                       : (isDown ? MVColours::panelHi.brighter (0.1f) : MVColours::panelHi);
-        g.setColour (fill);
-        g.fillRoundedRectangle (r, 5.0f);
-        g.setColour (on ? MVColours::goldHi : MVColours::stroke);
-        g.drawRoundedRectangle (r, 5.0f, 1.0f);
+        auto bounds = juce::Rectangle<float> ((float) x, (float) y, (float) w, (float) h).reduced (6.0f);
+        auto r = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f;
+        auto c = bounds.getCentre();
+        auto ang = startAng + posProp * (endAng - startAng);
+
+        // anel pontilhado (track + valor)
+        const int dots = 32;
+        for (int i = 0; i <= dots; ++i)
+        {
+            float t  = (float) i / (float) dots;
+            float a  = startAng + t * (endAng - startAng);
+            float rr = r + 6.0f;
+            juce::Point<float> p (c.x + std::cos (a - juce::MathConstants<float>::halfPi) * rr,
+                                  c.y + std::sin (a - juce::MathConstants<float>::halfPi) * rr);
+            bool on = a <= ang + 0.0001f;
+            g.setColour (on ? MVColours::accentHi : MVColours::stroke);
+            float d = on ? 3.2f : 2.2f;
+            g.fillEllipse (p.x - d*0.5f, p.y - d*0.5f, d, d);
+        }
+
+        // corpo crómio
+        juce::Rectangle<float> body (c.x - r, c.y - r, r*2.0f, r*2.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.5f));
+        g.fillEllipse (body.translated (0, 2.5f));
+
+        juce::ColourGradient cg (MVColours::chromeHi, body.getX(), body.getY(),
+                                 MVColours::chromeLo, body.getX(), body.getBottom(), false);
+        cg.addColour (0.45, MVColours::chromeMid);
+        cg.addColour (0.55, juce::Colour (0xff5a6673));
+        g.setGradientFill (cg);
+        g.fillEllipse (body);
+
+        g.setColour (juce::Colours::black.withAlpha (0.4f));
+        g.drawEllipse (body, 1.0f);
+
+        // cavidade central escura
+        auto inner = body.reduced (r * 0.34f);
+        juce::ColourGradient ig (MVColours::panelHi, inner.getX(), inner.getY(),
+                                 juce::Colours::black, inner.getX(), inner.getBottom(), false);
+        g.setGradientFill (ig);
+        g.fillEllipse (inner);
+
+        // ponteiro azul
+        juce::Point<float> tip (c.x + std::cos (ang - juce::MathConstants<float>::halfPi) * (r - 4.0f),
+                                c.y + std::sin (ang - juce::MathConstants<float>::halfPi) * (r - 4.0f));
+        juce::Point<float> base (c.x + std::cos (ang - juce::MathConstants<float>::halfPi) * (r * 0.4f),
+                                 c.y + std::sin (ang - juce::MathConstants<float>::halfPi) * (r * 0.4f));
+        g.setColour (MVColours::accentHi);
+        g.drawLine ({ base, tip }, 3.0f);
+        g.fillEllipse (tip.x - 2.5f, tip.y - 2.5f, 5.0f, 5.0f);
     }
 
-    void drawButtonText (juce::Graphics& g, juce::TextButton& b, bool, bool) override
+    //========================================================================
+    juce::Font getLabelFont (juce::Label& l) override
     {
-        g.setColour (b.getToggleState() ? juce::Colour (0xff20160a) : MVColours::textDim);
-        g.setFont (juce::Font (12.0f, juce::Font::bold));
-        g.drawText (b.getButtonText(), b.getLocalBounds(), juce::Justification::centred, false);
+        return l.getFont();
     }
-
-    juce::Font getComboBoxFont (juce::ComboBox&) override { return juce::Font (13.0f); }
-    juce::Font getPopupMenuFont() override { return juce::Font (13.0f); }
 };

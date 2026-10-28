@@ -1,53 +1,51 @@
 #include "PluginEditor.h"
 
-using namespace juce;
+//==============================================================================
+static juce::String dbText (double v)
+{
+    if (v <= -59.5) return "-inf";
+    return (v > 0 ? "+" : "") + juce::String (v, 1) + " dB";
+}
 
 //==============================================================================
 PiradexMVAudioProcessorEditor::PiradexMVAudioProcessorEditor (PiradexMVAudioProcessor& p)
-    : AudioProcessorEditor (&p), proc (p)
+    : juce::AudioProcessorEditor (&p), proc (p)
 {
     setLookAndFeel (&lnf);
 
-    auto fader = [this] (Slider& s, const String& suffix)
+    auto setupFader = [this] (juce::Slider& s)
     {
-        s.setSliderStyle (Slider::LinearVertical);
-        s.setTextBoxStyle (Slider::TextBoxBelow, false, 70, 22);
-        s.setTextValueSuffix (suffix);
-        s.setColour (Slider::textBoxTextColourId, MVColours::gold);
+        s.setSliderStyle (juce::Slider::LinearVertical);
+        s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 78, 20);
+        s.setTextValueSuffix ("");
+        s.textFromValueFunction = [] (double v) { return dbText (v); };
+        s.valueFromTextFunction = [] (const juce::String& t) { return t.getDoubleValue(); };
         addAndMakeVisible (s);
     };
-    fader (lowFader,  " %");
-    fader (highFader, " %");
+    setupFader (lowFader);
+    setupFader (highFader);
 
-    auto knob = [this] (Slider& s, const String& suffix)
+    auto setupKnob = [this] (juce::Slider& s, bool db)
     {
-        s.setSliderStyle (Slider::RotaryHorizontalVerticalDrag);
-        s.setTextBoxStyle (Slider::TextBoxBelow, false, 72, 22);
-        s.setTextValueSuffix (suffix);
-        s.setColour (Slider::textBoxTextColourId, MVColours::gold);
+        s.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+        s.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 72, 18);
+        if (db) s.textFromValueFunction = [] (double v) { return dbText (v); };
+        else    s.textFromValueFunction = [] (double v) { return juce::String ((int) v) + " %"; };
         addAndMakeVisible (s);
     };
-    knob (outputKnob, " dB");
-    knob (mixKnob,    " %");
-    knob (trimKnob,   " dB");
+    setupKnob (outputKnob, true);
+    setupKnob (mixKnob,  false);
+    setupKnob (trimKnob, true);
 
-    auto toggle = [this] (TextButton& b)
-    {
-        b.setClickingTogglesState (true);
+    for (auto* b : { &muteBtn, &dimBtn, &monoBtn, &bypassBtn })
         addAndMakeVisible (b);
-    };
-    toggle (lowLink); toggle (highLink);
-    toggle (muteBtn); toggle (dimBtn); toggle (monoBtn); toggle (bypassBtn);
 
-    auto combo = [this] (ComboBox& c, const StringArray& items)
-    {
-        c.addItemList (items, 1);
-        c.setJustificationType (Justification::centred);
-        addAndMakeVisible (c);
-    };
-    combo (osBox,   {"1x","2x","4x","8x"});
-    combo (respBox, {"Smooth","Balanced","Fast"});
-    combo (modeBox, {"Classic","Modern"});
+    osSeg.setItems   ({ "1x","2x","4x","8x" });
+    respSeg.setItems ({ "FAST","MED","SLOW" });
+    modeSeg.setItems ({ "STEREO","DUAL","M/S" });
+    addAndMakeVisible (osSeg);
+    addAndMakeVisible (respSeg);
+    addAndMakeVisible (modeSeg);
 
     auto& v = proc.apvts;
     lowA  = std::make_unique<SA>(v, "low",    lowFader);
@@ -55,19 +53,16 @@ PiradexMVAudioProcessorEditor::PiradexMVAudioProcessorEditor (PiradexMVAudioProc
     outA  = std::make_unique<SA>(v, "output", outputKnob);
     mixA  = std::make_unique<SA>(v, "mix",    mixKnob);
     trimA = std::make_unique<SA>(v, "trim",   trimKnob);
-
-    lowLinkA  = std::make_unique<BA>(v, "lowlink",  lowLink);
-    highLinkA = std::make_unique<BA>(v, "highlink", highLink);
     muteA   = std::make_unique<BA>(v, "mute",   muteBtn);
     dimA    = std::make_unique<BA>(v, "dim",    dimBtn);
     monoA   = std::make_unique<BA>(v, "mono",   monoBtn);
     bypassA = std::make_unique<BA>(v, "bypass", bypassBtn);
 
-    osA   = std::make_unique<CA>(v, "os",       osBox);
-    respA = std::make_unique<CA>(v, "response", respBox);
-    modeA = std::make_unique<CA>(v, "mode",     modeBox);
+    bindChoice (osSeg,   "os");
+    bindChoice (respSeg, "response");
+    bindChoice (modeSeg, "mode");
 
-    setSize (720, 540);
+    setSize (780, 540);
     startTimerHz (30);
 }
 
@@ -76,265 +71,237 @@ PiradexMVAudioProcessorEditor::~PiradexMVAudioProcessorEditor()
     setLookAndFeel (nullptr);
 }
 
-//==============================================================================
-void PiradexMVAudioProcessorEditor::paint (Graphics& g)
+void PiradexMVAudioProcessorEditor::bindChoice (SegmentedControl& seg, const juce::String& paramID)
 {
-    g.fillAll (MVColours::bg);
-
-    auto area = getLocalBounds().reduced (10);
-
-    // header
-    auto header = area.removeFromTop (48);
-    drawHeader (g, header);
-    area.removeFromTop (8);
-
-    // bottom bar
-    auto bottom = area.removeFromBottom (92);
-
-    // três painéis principais
-    auto left   = area.removeFromLeft (230);
-    auto right  = area.removeFromRight (210);
-    auto centre = area;
-
-    auto panel = [&] (Rectangle<int> r)
+    if (auto* pc = dynamic_cast<juce::AudioParameterChoice*> (proc.apvts.getParameter (paramID)))
     {
-        g.setColour (MVColours::panel);
-        g.fillRoundedRectangle (r.toFloat(), 10.0f);
-        g.setColour (MVColours::stroke);
-        g.drawRoundedRectangle (r.toFloat(), 10.0f, 1.0f);
-    };
-    panel (left);
-    panel (centre.reduced (6, 0));
-    panel (right);
-
-    // títulos das faixas
-    g.setColour (MVColours::textDim);
-    g.setFont (Font (12.0f, Font::bold));
-    g.drawText ("LOW",  left.removeFromTop (22).withTrimmedLeft (34),  Justification::centredLeft);
-    // (HIGH título é desenhado junto da escala)
-
-    // escala + títulos dos faders
-    drawFaderScale (g, left);
-
-    // OUTPUT label + logo central
-    auto cc = centre.reduced (6, 0);
-    drawPiradexLogo (g, Rectangle<float> (cc.getCentreX()-16, cc.getY()+16, 32, 32), MVColours::blue);
-    g.setColour (MVColours::textDim);
-    g.setFont (Font (13.0f, Font::bold));
-    g.drawText ("OUTPUT", cc.withY (cc.getY()+58).withHeight (18), Justification::centred);
-
-    // meters
-    g.setColour (MVColours::textDim);
-    g.setFont (Font (12.0f, Font::bold));
-    g.drawText ("OUTPUT LEVEL", right.withHeight (24).translated (0, 6), Justification::centred);
-    drawMeters (g, right.withTrimmedTop (30).reduced (12, 8));
-
-    // bottom labels
-    g.setColour (MVColours::textDim);
-    g.setFont (Font (10.5f, Font::bold));
-    auto bl = bottom.reduced (6, 6);
-    g.drawText ("OVERSAMPLING", bl.getX(),        bl.getY(), 120, 14, Justification::centred);
-    g.drawText ("RESPONSE",     bl.getX()+150,    bl.getY(), 120, 14, Justification::centred);
-    g.drawText ("OUTPUT MODE",  bl.getX()+300,    bl.getY(), 120, 14, Justification::centred);
-    g.drawText ("MIX",          bl.getRight()-170, bl.getY(), 70, 14, Justification::centred);
-    g.drawText ("TRIM",         bl.getRight()-85,  bl.getY(), 70, 14, Justification::centred);
-}
-
-//==============================================================================
-void PiradexMVAudioProcessorEditor::drawHeader (Graphics& g, Rectangle<int> h)
-{
-    g.setColour (MVColours::panel);
-    g.fillRoundedRectangle (h.toFloat(), 10.0f);
-    g.setColour (MVColours::stroke);
-    g.drawRoundedRectangle (h.toFloat(), 10.0f, 1.0f);
-
-    auto r = h.reduced (14, 0);
-    drawPiradexLogo (g, Rectangle<float> ((float) r.getX(), r.getCentreY()-11, 22, 22), MVColours::blue);
-
-    g.setColour (MVColours::text);
-    g.setFont (Font (20.0f, Font::bold));
-    g.drawText ("PIRADEX", r.withTrimmedLeft (32), Justification::centredLeft);
-    auto tw = g.getCurrentFont().getStringWidth ("PIRADEX ");
-    g.setColour (MVColours::gold);
-    g.drawText ("MV", r.withTrimmedLeft (32 + tw), Justification::centredLeft);
-
-    // VST3 à direita
-    g.setColour (MVColours::blue);
-    g.setFont (Font (12.0f, Font::bold));
-    g.drawText ("VST3 / AU", r.removeFromRight (80), Justification::centredRight);
-
-    // preset box (decorativo)
-    auto pb = h.withSizeKeepingCentre (220, 24);
-    g.setColour (MVColours::bg);
-    g.fillRoundedRectangle (pb.toFloat(), 6.0f);
-    g.setColour (MVColours::stroke);
-    g.drawRoundedRectangle (pb.toFloat(), 6.0f, 1.0f);
-    g.setColour (MVColours::textDim);
-    g.setFont (Font (12.0f));
-    g.drawText ("Default Preset", pb, Justification::centred);
-}
-
-//==============================================================================
-void PiradexMVAudioProcessorEditor::drawFaderScale (Graphics& g, Rectangle<int> left)
-{
-    // escala partilhada entre LOW e HIGH (decorativa, dB de referência)
-    const int marks[] = { 12, 9, 6, 3, 0, -3, -6, -9, -12, -18, -24, -36, -48, -60 };
-    auto scaleArea = faderArea;
-    if (scaleArea.isEmpty()) return;
-
-    g.setColour (MVColours::textDim);
-    g.setFont (Font (9.0f));
-
-    int top = scaleArea.getY();
-    int bot = scaleArea.getBottom();
-    int n = (int) (sizeof(marks)/sizeof(int));
-    for (int i = 0; i < n; ++i)
-    {
-        float t = (float) i / (float) (n - 1);
-        int yy = top + (int) (t * (bot - top));
-        g.drawText (String (marks[i]),
-                    scaleArea.getX() - 2, yy - 6, 22, 12, Justification::centredRight);
-    }
-}
-
-//==============================================================================
-void PiradexMVAudioProcessorEditor::drawMeters (Graphics& g, Rectangle<int> area)
-{
-    meterArea = area;
-    const int barW = 20;
-    auto l = area.removeFromLeft (barW);
-    area.removeFromLeft (6);
-    auto scale = area.removeFromLeft (area.getWidth() - barW - 6);
-    auto r = area.removeFromRight (barW);
-
-    auto drawBar = [&] (Rectangle<int> bar, float level01)
-    {
-        g.setColour (MVColours::bg);
-        g.fillRoundedRectangle (bar.toFloat(), 3.0f);
-
-        const int segs = 28;
-        float segH = bar.getHeight() / (float) segs;
-        int lit = (int) std::round (level01 * segs);
-        for (int i = 0; i < segs; ++i)
+        seg.setIndex (pc->getIndex());
+        seg.onChange = [pc] (int i)
         {
-            float frac = (float) i / (float) (segs - 1);   // 0 baixo, 1 topo
-            Colour c = frac > 0.86f ? MVColours::meterRed
-                     : frac > 0.62f ? MVColours::meterYel
-                                    : MVColours::meterGrn;
-            bool on = i < lit;
-            Rectangle<float> seg (bar.getX()+2.0f,
-                                  bar.getBottom() - (i+1)*segH + 1.0f,
-                                  bar.getWidth()-4.0f, segH - 1.5f);
-            g.setColour (on ? c : c.withAlpha (0.12f));
-            g.fillRoundedRectangle (seg, 1.5f);
-        }
-        g.setColour (MVColours::stroke);
-        g.drawRoundedRectangle (bar.toFloat(), 3.0f, 1.0f);
-    };
-
-    drawBar (l, mL);
-    drawBar (r, mR);
-
-    // escala central
-    const int db[] = { 0,-3,-6,-9,-12,-18,-24,-36,-48,-60 };
-    g.setColour (MVColours::textDim);
-    g.setFont (Font (9.0f));
-    int n = (int) (sizeof(db)/sizeof(int));
-    for (int i=0;i<n;++i)
-    {
-        float t = (float) i/(float)(n-1);
-        int yy = l.getY() + (int)(t * l.getHeight());
-        g.drawText (String (db[i]), scale.getX(), yy-6, scale.getWidth(), 12, Justification::centred);
+            pc->beginChangeGesture();
+            pc->setValueNotifyingHost (pc->convertTo0to1 ((float) i));
+            pc->endChangeGesture();
+        };
     }
-
-    // readouts
-    auto dbStr = [] (float peak) {
-        if (peak < 1.0e-5f) return String ("-inf");
-        return String (Decibels::gainToDecibels (peak), 1);
-    };
-    g.setColour (MVColours::gold);
-    g.setFont (Font (12.0f, Font::bold));
-    g.drawText (dbStr (proc.outPeakL.load()), l.getX()-4, l.getBottom()+4, barW+8, 16, Justification::centred);
-    g.drawText (dbStr (proc.outPeakR.load()), r.getX()-4, r.getBottom()+4, barW+8, 16, Justification::centred);
-    g.setColour (MVColours::textDim);
-    g.setFont (Font (9.0f, Font::bold));
-    g.drawText ("PEAK", scale.getX(), l.getBottom()+6, scale.getWidth(), 12, Justification::centred);
-}
-
-//==============================================================================
-void PiradexMVAudioProcessorEditor::drawPiradexLogo (Graphics& g, Rectangle<float> b, Colour col)
-{
-    // losango estilizado "P" do Piradex
-    Path dia;
-    dia.startNewSubPath (b.getCentreX(), b.getY());
-    dia.lineTo (b.getRight(),   b.getCentreY());
-    dia.lineTo (b.getCentreX(), b.getBottom());
-    dia.lineTo (b.getX(),       b.getCentreY());
-    dia.closeSubPath();
-    g.setColour (col);
-    g.strokePath (dia, PathStrokeType (2.0f));
-    g.setFont (Font (b.getHeight()*0.5f, Font::bold));
-    g.drawText ("P", b, Justification::centred);
-}
-
-//==============================================================================
-void PiradexMVAudioProcessorEditor::resized()
-{
-    auto area = getLocalBounds().reduced (10);
-    area.removeFromTop (48 + 8);          // header
-    auto bottom = area.removeFromBottom (92);
-
-    auto left   = area.removeFromLeft (230);
-    auto right  = area.removeFromRight (210);
-    auto centre = area.reduced (6, 0);
-
-    // ----- faders LOW/HIGH -----
-    auto lf = left.reduced (10, 6);
-    lf.removeFromTop (18);                 // títulos
-    auto faderBody = lf.removeFromTop (lf.getHeight() - 70);
-    faderArea = faderBody.withTrimmedLeft (24);   // guardar p/ escala
-
-    int colW = (faderBody.getWidth() - 24) / 2;
-    lowFader .setBounds (faderBody.getX()+24,        faderBody.getY(), colW, faderBody.getHeight());
-    highFader.setBounds (faderBody.getX()+24+colW,   faderBody.getY(), colW, faderBody.getHeight());
-
-    auto linkRow = lf.removeFromTop (40);
-    lowLink .setBounds (faderBody.getX()+24+6,      linkRow.getY()+22, colW-12, 18);
-    highLink.setBounds (faderBody.getX()+24+colW+6, linkRow.getY()+22, colW-12, 18);
-
-    // ----- centro: OUTPUT + toggles -----
-    auto cc = centre;
-    cc.removeFromTop (80);
-    outputKnob.setBounds (cc.getCentreX()-60, cc.getY(), 120, 120);
-    auto toggles = cc.withY (cc.getY()+150).withHeight (34).reduced (14, 0);
-    int bw = (toggles.getWidth() - 18) / 4;
-    muteBtn  .setBounds (toggles.getX(),            toggles.getY(), bw, 30);
-    dimBtn   .setBounds (toggles.getX()+(bw+6),     toggles.getY(), bw, 30);
-    monoBtn  .setBounds (toggles.getX()+2*(bw+6),   toggles.getY(), bw, 30);
-    bypassBtn.setBounds (toggles.getX()+3*(bw+6),   toggles.getY(), bw, 30);
-
-    // ----- bottom: combos + mix/trim -----
-    auto bl = bottom.reduced (6, 6);
-    bl.removeFromTop (16);
-    osBox  .setBounds (bl.getX(),      bl.getY()+6, 110, 30);
-    respBox.setBounds (bl.getX()+150,  bl.getY()+6, 110, 30);
-    modeBox.setBounds (bl.getX()+300,  bl.getY()+6, 110, 30);
-    mixKnob .setBounds (bl.getRight()-168, bl.getY()-4, 66, 66);
-    trimKnob.setBounds (bl.getRight()-84,  bl.getY()-4, 66, 66);
 }
 
 //==============================================================================
 void PiradexMVAudioProcessorEditor::timerCallback()
 {
-    auto toLevel = [] (float peak)
+    auto norm = [] (float peak)
     {
-        float db = peak < 1.0e-5f ? -70.0f : Decibels::gainToDecibels (peak);
-        return jlimit (0.0f, 1.0f, (db + 60.0f) / 60.0f);
+        float db = juce::Decibels::gainToDecibels (peak + 1.0e-6f);
+        return juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 66.0f); // -60..+6 dB
     };
-    float tL = toLevel (proc.outPeakL.load());
-    float tR = toLevel (proc.outPeakR.load());
-    // ballistics (sobe rápido, desce suave)
-    mL = tL > mL ? tL : mL * 0.82f + tL * 0.18f;
-    mR = tR > mR ? tR : mR * 0.82f + tR * 0.18f;
+    float tL = norm (proc.outPeakL.load());
+    float tR = norm (proc.outPeakR.load());
+    mL += (tL - mL) * (tL > mL ? 0.6f : 0.12f);
+    mR += (tR - mR) * (tR > mR ? 0.6f : 0.12f);
+
+    float gl = proc.grLow.load(), gh = proc.grHigh.load();
+    grLowS  += (gl - grLowS)  * 0.3f;
+    grHighS += (gh - grHighS) * 0.3f;
+
+    // sincroniza segmentos com automação do host
+    auto sync = [this] (SegmentedControl& s, const juce::String& id)
+    {
+        if (auto* pc = dynamic_cast<juce::AudioParameterChoice*> (proc.apvts.getParameter (id)))
+            if (pc->getIndex() != s.getIndex()) s.setIndex (pc->getIndex());
+    };
+    sync (osSeg, "os"); sync (respSeg, "response"); sync (modeSeg, "mode");
+
     repaint();
+}
+
+//==============================================================================
+void PiradexMVAudioProcessorEditor::drawDiamond (juce::Graphics& g, juce::Rectangle<float> r)
+{
+    juce::Path d;
+    d.startNewSubPath (r.getCentreX(), r.getY());
+    d.lineTo (r.getRight(), r.getCentreY());
+    d.lineTo (r.getCentreX(), r.getBottom());
+    d.lineTo (r.getX(), r.getCentreY());
+    d.closeSubPath();
+
+    juce::ColourGradient grad (MVColours::accentHi, r.getX(), r.getY(),
+                               MVColours::accentDeep, r.getRight(), r.getBottom(), false);
+    g.setGradientFill (grad);
+    g.fillPath (d);
+    g.setColour (juce::Colours::white.withAlpha (0.6f));
+    g.strokePath (d, juce::PathStrokeType (1.2f));
+}
+
+void PiradexMVAudioProcessorEditor::drawHeader (juce::Graphics& g, juce::Rectangle<int> area)
+{
+    auto a = area.toFloat();
+    juce::ColourGradient hg (MVColours::panelHi, a.getX(), a.getY(),
+                             MVColours::panel, a.getX(), a.getBottom(), false);
+    g.setGradientFill (hg);
+    g.fillRect (a);
+    g.setColour (MVColours::accent.withAlpha (0.55f));
+    g.fillRect (a.getX(), a.getBottom()-2.0f, a.getWidth(), 2.0f);
+
+    auto row = area.reduced (16, 0);
+    auto diamond = row.removeFromLeft (34).toFloat().withSizeKeepingCentre (22, 22);
+    drawDiamond (g, diamond);
+
+    auto titleArea = row.removeFromLeft (260);
+    g.setColour (MVColours::text);
+    g.setFont (juce::Font (juce::FontOptions (26.0f, juce::Font::bold)));
+    g.drawText ("LEVEL-X", titleArea.removeFromTop ((int) (area.getHeight()*0.62f)).withTrimmedTop (8),
+                juce::Justification::bottomLeft);
+    g.setColour (MVColours::accentHi);
+    g.setFont (juce::Font (juce::FontOptions (12.0f)));
+    g.drawText ("by Piradex", titleArea, juce::Justification::topLeft);
+
+    // navegador de preset "Modern Master"
+    auto nav = row.removeFromRight (240).reduced (0, 12).toFloat();
+    g.setColour (MVColours::slot);
+    g.fillRoundedRectangle (nav, 6.0f);
+    g.setColour (MVColours::stroke);
+    g.drawRoundedRectangle (nav, 6.0f, 1.0f);
+    g.setColour (MVColours::accentHi);
+    g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
+    g.drawText ("Modern Master", nav, juce::Justification::centred);
+    g.setColour (MVColours::textDim);
+    g.setFont (juce::Font (juce::FontOptions (16.0f)));
+    g.drawText ("<", nav.removeFromLeft (22), juce::Justification::centred);
+    g.drawText (">", nav.removeFromRight (22), juce::Justification::centred);
+}
+
+//==============================================================================
+void PiradexMVAudioProcessorEditor::drawFaderColumn (juce::Graphics& g, juce::Rectangle<int> col,
+                                                     const juce::String& title, float grDb)
+{
+    auto a = col.toFloat();
+    g.setColour (MVColours::panelHi.withAlpha (0.5f));
+    g.fillRoundedRectangle (a, 8.0f);
+    g.setColour (MVColours::stroke);
+    g.drawRoundedRectangle (a, 8.0f, 1.0f);
+
+    g.setColour (MVColours::accentHi);
+    g.setFont (juce::Font (juce::FontOptions (15.0f, juce::Font::bold)));
+    g.drawText (title, col.removeFromTop (26), juce::Justification::centred);
+
+    g.setColour (MVColours::textDim);
+    g.setFont (juce::Font (juce::FontOptions (10.0f)));
+    juce::String gr = (std::abs (grDb) < 0.1f) ? "0.0" : juce::String (grDb, 1);
+    g.drawText (gr + " dB", col.removeFromBottom (16), juce::Justification::centred);
+}
+
+void PiradexMVAudioProcessorEditor::drawMeters (juce::Graphics& g, juce::Rectangle<int> area)
+{
+    auto a = area.toFloat();
+    g.setColour (MVColours::slot);
+    g.fillRoundedRectangle (a, 6.0f);
+    g.setColour (MVColours::stroke);
+    g.drawRoundedRectangle (a, 6.0f, 1.0f);
+
+    auto inner = a.reduced (6.0f);
+    const float gap = 5.0f;
+    float barW = (inner.getWidth() - gap) * 0.5f;
+    auto drawBar = [&] (juce::Rectangle<float> r, float level)
+    {
+        // escala arco-íris: verde -> amarelo -> laranja -> vermelho
+        juce::ColourGradient grad (juce::Colour (0xff2ecc71), r.getX(), r.getBottom(),
+                                   juce::Colour (0xffe74c3c), r.getX(), r.getY(), false);
+        grad.addColour (0.55, juce::Colour (0xfff1c40f));
+        grad.addColour (0.80, juce::Colour (0xffe67e22));
+        g.setColour (juce::Colours::black.withAlpha (0.4f));
+        g.fillRoundedRectangle (r, 3.0f);
+        float h = r.getHeight() * juce::jlimit (0.0f, 1.0f, level);
+        juce::Rectangle<float> fill (r.getX(), r.getBottom() - h, r.getWidth(), h);
+        g.setGradientFill (grad);
+        g.fillRoundedRectangle (fill, 3.0f);
+    };
+    drawBar (inner.removeFromLeft (barW), mL);
+    inner.removeFromLeft (gap);
+    drawBar (inner, mR);
+}
+
+//==============================================================================
+void PiradexMVAudioProcessorEditor::paint (juce::Graphics& g)
+{
+    g.fillAll (MVColours::panel);
+
+    auto area = getLocalBounds();
+    drawHeader (g, area.removeFromTop (64));
+
+    drawFaderColumn (g, lowCol,  "LOW",  grLowS);
+    drawFaderColumn (g, highCol, "HIGH", grHighS);
+    drawMeters (g, meterArea);
+
+    // rótulos dos selectores + knobs
+    g.setColour (MVColours::textDim);
+    g.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)));
+    auto lbl = [&] (juce::Component& c, const juce::String& t)
+    {
+        auto r = c.getBounds();
+        g.drawText (t, r.getX(), r.getY()-15, r.getWidth(), 13, juce::Justification::centred);
+    };
+    lbl (osSeg,   "OVERSAMPLING");
+    lbl (respSeg, "RESPONSE");
+    lbl (modeSeg, "OUTPUT MODE");
+    lbl (outputKnob, "OUTPUT");
+    lbl (mixKnob,  "MIX");
+    lbl (trimKnob, "TRIM");
+
+    g.setColour (MVColours::textDim.withAlpha (0.8f));
+    g.setFont (juce::Font (juce::FontOptions (10.0f)));
+    g.drawText ("Criador e Desenvolvedor  Ricardo Amorim / Juninho Piradex   -   v1.0.0",
+                getLocalBounds().removeFromBottom (18), juce::Justification::centred);
+}
+
+//==============================================================================
+void PiradexMVAudioProcessorEditor::resized()
+{
+    auto area = getLocalBounds();
+    area.removeFromTop (64);        // header
+    area.removeFromBottom (18);     // footer
+    area.reduce (16, 14);
+
+    // esquerda: dois faders + meters
+    auto left = area.removeFromLeft (320);
+    {
+        auto colW = 96;
+        lowCol  = left.removeFromLeft (colW);
+        left.removeFromLeft (10);
+        highCol = left.removeFromLeft (colW);
+        left.removeFromLeft (10);
+        meterArea = left.removeFromLeft (40).reduced (0, 26);
+
+        auto fL = lowCol.reduced (8); fL.removeFromTop (26); fL.removeFromBottom (16);
+        lowFader.setBounds (fL);
+        auto fH = highCol.reduced (8); fH.removeFromTop (26); fH.removeFromBottom (16);
+        highFader.setBounds (fH);
+    }
+
+    area.removeFromLeft (20);
+
+    // direita: selectores (topo), knobs (meio), botões (fundo)
+    auto right = area;
+
+    auto segRow = right.removeFromTop (46);
+    segRow.removeFromTop (16);
+    auto segH = 30;
+    osSeg.setBounds   (segRow.removeFromLeft (150).withHeight (segH));
+    modeSeg.setBounds (segRow.removeFromRight (170).withHeight (segH));
+    respSeg.setBounds (segRow.reduced (12, 0).withHeight (segH));
+
+    right.removeFromTop (28);
+
+    auto knobRow = right.removeFromTop (118);
+    auto kw = knobRow.getWidth() / 3;
+    outputKnob.setBounds (knobRow.removeFromLeft (kw).reduced (6));
+    mixKnob.setBounds    (knobRow.removeFromLeft (kw).reduced (6));
+    trimKnob.setBounds   (knobRow.reduced (6));
+
+    right.removeFromTop (20);
+
+    auto btnRow = right.removeFromTop (44);
+    auto bw = (btnRow.getWidth() - 3*8) / 4;
+    muteBtn.setBounds   (btnRow.removeFromLeft (bw)); btnRow.removeFromLeft (8);
+    dimBtn.setBounds    (btnRow.removeFromLeft (bw)); btnRow.removeFromLeft (8);
+    monoBtn.setBounds   (btnRow.removeFromLeft (bw)); btnRow.removeFromLeft (8);
+    bypassBtn.setBounds (btnRow.removeFromLeft (bw));
 }
