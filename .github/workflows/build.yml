@@ -155,18 +155,11 @@ jobs:
           New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
             -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force | Out-Null
 
-      - name: Diagnostics
-        shell: pwsh
-        run: |
-          cmake --version *>&1 | Tee-Object -FilePath win-configure.log
-          "--- generators ---" | Tee-Object -Append win-configure.log
-          cmake --help *>&1 | Select-String -Pattern "Visual Studio|Ninja" | Tee-Object -Append win-configure.log
-
       - name: Configure
         shell: pwsh
         run: |
-          # usa o gerador VS por omissão (o runner já tem VS 2026, não 2022)
-          cmake -B C:/b -A x64 *>&1 | Tee-Object -Append win-configure.log
+          # usa o gerador VS por omissão (o runner usa VS 2026)
+          cmake -B C:/b -A x64 *>&1 | Tee-Object -FilePath win-configure.log
           exit $LASTEXITCODE
 
       - name: Build (Release)

@@ -41,12 +41,29 @@ xattr -cr ~/Library/Audio/Plug-Ins/Components/"LEVEL-X.component"
 xattr -cr ~/Library/Audio/Plug-Ins/VST3/"LEVEL-X.vst3"
 ```
 
+## Windows (VST3)
+
+O workflow também gera o **VST3 para Windows** e um instalador
+**`LEVEL-X-Installer-Windows.exe`** (Inno Setup) que o coloca em
+`C:\Program Files\Common Files\VST3`. Para instalar à mão, copia a pasta
+`LEVEL-X.vst3` para essa localização.
+
 ## Compilar localmente
 
 ```bash
-cmake -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+# macOS (VST3 + AU, universal, mínimo 10.13)
+cmake -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+cmake --build build --config Release
+
+# Windows (VST3)
+cmake -B build -A x64
 cmake --build build --config Release
 ```
+
+## Assinar/notarizar
+
+Ver `installer/SIGNING.md` — basta adicionar os certificados como *Secrets*
+no repositório e o workflow passa a assinar e notarizar automaticamente.
 
 ## Afinar o carácter
 
