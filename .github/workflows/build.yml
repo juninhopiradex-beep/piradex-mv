@@ -1,4 +1,4 @@
-name: Build Piradex MV (macOS — VST3 + AU)
+name: Build LEVEL-X (macOS VST3+AU / Windows VST3)
 
 on:
   push:
@@ -140,4 +140,59 @@ jobs:
           files: |
             LEVEL-X-macOS.zip
             LEVEL-X-Installer.pkg
+          fail_on_unmatched_files: true
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build (Release)
+        run: cmake --build build --config Release
+
+      - name: Collect VST3
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          $vst3 = Get-ChildItem -Path build -Recurse -Directory -Filter "LEVEL-X.vst3" | Select-Object -First 1
+          if (-not $vst3) { throw "LEVEL-X.vst3 não encontrado" }
+          Copy-Item -Recurse -Force $vst3.FullName "out\LEVEL-X.vst3"
+          Get-ChildItem -Recurse out | Select-Object FullName
+
+      - name: Zip VST3
+        shell: pwsh
+        run: Compress-Archive -Path out\LEVEL-X.vst3 -DestinationPath LEVEL-X-Windows-VST3.zip -Force
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer (.exe)
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            "/DVST3SRC=$PWD\out\LEVEL-X.vst3" "/DOUTDIR=$PWD" `
+            installer\windows\LEVEL-X.iss
+          Get-ChildItem LEVEL-X-Installer-Windows.exe
+
+      - name: Upload artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: LEVEL-X-Windows
+          path: |
+            LEVEL-X-Windows-VST3.zip
+            LEVEL-X-Installer-Windows.exe
+
+      - name: Publish release (download via github.com)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: LEVEL-X latest build
+          files: |
+            LEVEL-X-Windows-VST3.zip
+            LEVEL-X-Installer-Windows.exe
           fail_on_unmatched_files: true
