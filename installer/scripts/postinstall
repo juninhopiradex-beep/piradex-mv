@@ -1,0 +1,6 @@
+#!/bin/bash
+# LEVEL-X — pós-instalação: remover quarentena dos bundles instalados
+# (plugin não assinado: evita o aviso do Gatekeeper ao abrir no DAW)
+xattr -cr "/Library/Audio/Plug-Ins/VST3/LEVEL-X.vst3"        2>/dev/null || true
+xattr -cr "/Library/Audio/Plug-Ins/Components/LEVEL-X.component" 2>/dev/null || true
+exit 0

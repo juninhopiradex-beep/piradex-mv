@@ -36,16 +36,47 @@ jobs:
           cd ..
           ls -la LEVEL-X-macOS.zip
 
+      - name: Build installer (.pkg)
+        run: |
+          set -e
+          VER=1.0.0
+          mkdir -p pkgroot/vst3 pkgroot/au build-pkg
+          cp -R out/LEVEL-X.vst3      pkgroot/vst3/
+          cp -R out/LEVEL-X.component pkgroot/au/
+          chmod +x installer/scripts/postinstall
+
+          # componente VST3
+          pkgbuild --identifier com.beatfreak.levelx.vst3 --version "$VER" \
+            --install-location "/Library/Audio/Plug-Ins/VST3" \
+            --root pkgroot/vst3 build-pkg/vst3.pkg
+
+          # componente AU (com postinstall para remover a quarentena dos dois)
+          pkgbuild --identifier com.beatfreak.levelx.au --version "$VER" \
+            --install-location "/Library/Audio/Plug-Ins/Components" \
+            --scripts installer/scripts \
+            --root pkgroot/au build-pkg/au.pkg
+
+          # instalador combinado
+          productbuild --distribution installer/Distribution.xml \
+            --package-path build-pkg \
+            --resources installer/resources \
+            "LEVEL-X-Installer.pkg"
+          ls -la LEVEL-X-Installer.pkg
+
       - name: Upload artefacts
         uses: actions/upload-artifact@v4
         with:
           name: LEVEL-X-macOS
-          path: out/
+          path: |
+            out/
+            LEVEL-X-Installer.pkg
 
       - name: Publish release (download via github.com)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: LEVEL-X latest build
-          files: LEVEL-X-macOS.zip
+          files: |
+            LEVEL-X-macOS.zip
+            LEVEL-X-Installer.pkg
           fail_on_unmatched_files: true

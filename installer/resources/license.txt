@@ -1,0 +1,21 @@
+LEVEL-X by Piradex — Licença de Utilização
+Criador e Desenvolvedor: Ricardo Amorim / Juninho Piradex
+Versão 1.0.0
+
+Este software é fornecido por BeatFreak / Piradex. Ao instalar, concorda em
+utilizá-lo nos termos abaixo:
+
+1. É concedida uma licença pessoal e intransmissível para instalar e usar o
+   LEVEL-X nos seus próprios sistemas de produção musical.
+
+2. Não é permitida a redistribuição, revenda, engenharia inversa ou remoção
+   dos créditos de autoria do produto.
+
+3. O software é fornecido "tal como está", sem garantias. O autor não se
+   responsabiliza por quaisquer danos decorrentes da sua utilização.
+
+4. Todos os direitos sobre o LEVEL-X pertencem a Ricardo Amorim / Juninho
+   Piradex (BeatFreak).
+
+Suporte: juninhopiradex@hotmail.com
+Loja: www.beatfreakstudio.com
