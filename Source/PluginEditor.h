@@ -212,19 +212,24 @@ private:
         g.setColour (th->stroke);
         g.drawRoundedRectangle (r, 2.0f, 0.8f);
 
-        float h = r.getHeight() * juce::jlimit (0.0f, 1.0f, level);
-        if (h > 0)
+        // LEDs segmentados (verde -> amarelo -> laranja -> vermelho)
+        const int segs = 24;
+        const float gap = 1.4f;
+        auto inner = r.reduced (1.6f);
+        float segH = (inner.getHeight() - (segs-1)*gap) / segs;
+        int lit = juce::roundToInt (juce::jlimit (0.0f, 1.0f, level) * segs);
+        for (int i = 0; i < segs; ++i)
         {
-            juce::ColourGradient grad (th->meterLo, r.getX(), r.getBottom(),
-                                       th->meterHi, r.getX(), r.getY(), false);
-            grad.addColour (0.55, th->meterMid);
-            grad.addColour (0.80, th->meterMid.interpolatedWith (th->meterHi, 0.5f));
-            g.setGradientFill (grad);
-            g.fillRoundedRectangle (r.getX(), r.getBottom()-h, r.getWidth(), h, 2.0f);
+            float t = (float) i / (float) (segs - 1);          // 0 base .. 1 topo
+            juce::Colour col = t < 0.6f ? th->meterLo.interpolatedWith (th->meterMid, t/0.6f)
+                             : t < 0.85f ? th->meterMid.interpolatedWith (th->meterHi, (t-0.6f)/0.25f)
+                                         : th->meterHi;
+            float y = inner.getBottom() - (i+1)*segH - i*gap;
+            juce::Rectangle<float> seg (inner.getX(), y, inner.getWidth(), segH);
+            if (i < lit) { g.setColour (col); g.fillRect (seg);
+                           g.setColour (juce::Colours::white.withAlpha (0.12f)); g.fillRect (seg.removeFromTop (segH*0.4f)); }
+            else         { g.setColour (th->sub.withAlpha (th->dark ? 0.22f : 0.32f)); g.fillRect (seg); }
         }
-        // divisões
-        g.setColour (th->bg.withAlpha (0.5f));
-        for (int i=1;i<14;++i){ float y=r.getBottom()-r.getHeight()*(i/14.0f); g.drawLine (r.getX(),y,r.getRight(),y,0.6f); }
     }
     float lvlL = 0.0f, lvlR = 0.0f;
 };
@@ -241,7 +246,8 @@ public:
     void resized() override;
 
 private:
-    struct KnobInfo { juce::Slider* s; juce::String name; std::function<juce::String(double)> fmt; };
+    struct KnobInfo { juce::Slider* s; juce::String name; std::function<juce::String(double)> fmt;
+                      juce::String lo, hi; };
 
     void timerCallback() override;
     void applyThemeToAll();

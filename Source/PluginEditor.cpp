@@ -74,14 +74,14 @@ PiradexMVAudioProcessorEditor::PiradexMVAudioProcessorEditor (PiradexMVAudioProc
 
     // knob info (nome + formato) para desenhar labels/valores
     knobs = {
-        { &inputTrimK, "INPUT TRIM", fmt::dbpm },
-        { &lowThreshK, "THRESHOLD",  fmt::db   },
-        { &lowMaxGainK,"MAX GAIN",   fmt::gain },
-        { &trimK,      "TRIM",       fmt::dbpm },
-        { &mixK,       "MIX",        fmt::pct  },
-        { &highThreshK,"THRESHOLD",  fmt::db   },
-        { &highRatioK, "RATIO",      fmt::ratio},
-        { &outputK,    "OUTPUT",     fmt::dbpm },
+        { &inputTrimK, "INPUT TRIM", fmt::dbpm, "", ""   },
+        { &lowThreshK, "THRESHOLD",  fmt::db,   "-60", "0" },
+        { &lowMaxGainK,"MAX GAIN",   fmt::gain, "0", "24"  },
+        { &trimK,      "TRIM",       fmt::dbpm, "-12", "+12" },
+        { &mixK,       "MIX",        fmt::pct,  "0", "100" },
+        { &highThreshK,"THRESHOLD",  fmt::db,   "-60", "0" },
+        { &highRatioK, "RATIO",      fmt::ratio,"1", "20"  },
+        { &outputK,    "OUTPUT",     fmt::dbpm, "", ""   },
     };
 
     // presets
@@ -281,7 +281,11 @@ void PiradexMVAudioProcessorEditor::drawPanel (juce::Graphics& g, juce::Rectangl
                                                juce::Colour accent)
 {
     auto a = rr.toFloat();
-    g.setColour (th.panel);   g.fillRoundedRectangle (a, 8.0f);
+    juce::ColourGradient pg (th.panelHi, a.getCentreX(), a.getY(),
+                             th.panel, a.getCentreX(), a.getBottom(), false);
+    g.setGradientFill (pg); g.fillRoundedRectangle (a, 8.0f);
+    g.setColour (juce::Colours::white.withAlpha (th.dark ? 0.05f : 0.5f));
+    g.drawRoundedRectangle (a.reduced (0.6f).withTrimmedBottom (a.getHeight()*0.5f), 8.0f, 1.0f);
     g.setColour (th.stroke);  g.drawRoundedRectangle (a, 8.0f, 1.0f);
     auto head = rr.reduced (10, 0).removeFromTop (34);
     g.setColour (th.text);
@@ -308,12 +312,28 @@ void PiradexMVAudioProcessorEditor::drawKnobLabels (juce::Graphics& g)
     {
         auto b = k.s->getBounds();
         int cx = b.getCentreX();
+
+        // rótulos de range nos cantos inferiores do knob
+        if (k.lo.isNotEmpty())
+        {
+            g.setColour (th.sub);
+            g.setFont (juce::Font (juce::FontOptions (8.0f)));
+            g.drawText (k.lo, b.getX()-4, b.getBottom()-16, 26, 11, juce::Justification::centredLeft);
+            g.drawText (k.hi, b.getRight()-22, b.getBottom()-16, 26, 11, juce::Justification::centredRight);
+        }
+
+        // nome
         g.setColour (th.textDim);
         g.setFont (juce::Font (juce::FontOptions (9.0f, juce::Font::bold)));
-        g.drawText (k.name, cx-70, b.getBottom()+1, 140, 12, juce::Justification::centred);
+        g.drawText (k.name, cx-70, b.getBottom()+2, 140, 12, juce::Justification::centred);
+
+        // caixa de valor recessada
+        juce::Rectangle<float> vb ((float) cx-33, (float) b.getBottom()+15, 66.0f, 17.0f);
+        g.setColour (th.slot);   g.fillRoundedRectangle (vb, 3.5f);
+        g.setColour (th.stroke); g.drawRoundedRectangle (vb, 3.5f, 1.0f);
         g.setColour (th.text);
-        g.setFont (juce::Font (juce::FontOptions (11.5f, juce::Font::bold)));
-        g.drawText (k.fmt (k.s->getValue()), cx-70, b.getBottom()+13, 140, 14, juce::Justification::centred);
+        g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+        g.drawText (k.fmt (k.s->getValue()), vb, juce::Justification::centred);
     }
 }
 
@@ -352,6 +372,23 @@ void PiradexMVAudioProcessorEditor::paint (juce::Graphics& g)
 
     drawPanel (g, lowPanel,  "LOW",  "UPWARD COMPRESSION", th.blue);
     drawPanel (g, highPanel, "HIGH", "DOWNWARD LIMITING",  th.amber);
+
+    // quadros centrais TRIM / MIX
+    {
+        auto cc = centerCol;
+        auto topBox = cc.removeFromTop (cc.getHeight()/2).reduced (0, 2);
+        auto botBox = cc.reduced (0, 2);
+        for (auto box : { topBox, botBox })
+        {
+            auto bf = box.toFloat();
+            juce::ColourGradient pg (th.panelHi, bf.getCentreX(), bf.getY(),
+                                     th.panel, bf.getCentreX(), bf.getBottom(), false);
+            g.setGradientFill (pg); g.fillRoundedRectangle (bf, 7.0f);
+            g.setColour (th.stroke); g.drawRoundedRectangle (bf, 7.0f, 1.0f);
+            g.setColour (juce::Colours::white.withAlpha (th.dark ? 0.04f : 0.4f));
+            g.drawRoundedRectangle (bf.reduced (0.6f).withTrimmedBottom (bf.getHeight()*0.6f), 7.0f, 1.0f);
+        }
+    }
 
     drawGroup (g, respGroup, "RESPONSE");
     drawGroup (g, osGroup,   "OVERSAMPLING");
@@ -399,11 +436,11 @@ void PiradexMVAudioProcessorEditor::resized()
     highPanel = area.removeFromLeft (345); area.removeFromLeft (g);
     outCol    = area;
 
-    auto placeKnob = [] (juce::Slider& s, juce::Rectangle<int> cell, int reserve = 30)
+    auto placeKnob = [] (juce::Slider& s, juce::Rectangle<int> cell, int reserve = 38)
     {
         int d = juce::jmin (cell.getWidth(), cell.getHeight() - reserve);
-        d = juce::jlimit (40, 96, d);
-        auto sq = juce::Rectangle<int>(0,0,d,d).withCentre ({ cell.getCentreX(), cell.getY() + d/2 + 2 });
+        d = juce::jlimit (44, 96, d);
+        auto sq = juce::Rectangle<int>(0,0,d,d).withCentre ({ cell.getCentreX(), cell.getY() + d/2 + 4 });
         s.setBounds (sq);
     };
 

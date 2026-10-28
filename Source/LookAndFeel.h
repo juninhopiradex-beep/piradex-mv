@@ -142,52 +142,85 @@ public:
         auto r  = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f;
         auto c  = bounds.getCentre();
         auto ang = startAng + posProp * (endAng - startAng);
-        const float arcR = r - 2.0f;
+        const float arcR = r - 1.5f;
 
-        // ticks à volta
+        // ticks finos à volta
         const int ticks = 11;
         for (int i = 0; i < ticks; ++i)
         {
             float t = (float) i / (float) (ticks - 1);
             float a = startAng + t * (endAng - startAng);
-            auto p1 = c.getPointOnCircumference (r + 1.5f, a);
-            auto p2 = c.getPointOnCircumference (r + 4.5f, a);
-            g.setColour (a <= ang ? accent.withAlpha (0.9f) : th.sub.withAlpha (0.6f));
-            g.drawLine ({ p1, p2 }, 1.4f);
+            auto p1 = c.getPointOnCircumference (r + 0.5f, a);
+            auto p2 = c.getPointOnCircumference (r + 3.5f, a);
+            g.setColour (a <= ang ? accent.withAlpha (0.85f) : th.sub.withAlpha (0.45f));
+            g.drawLine ({ p1, p2 }, 1.2f);
         }
 
         // arco de fundo + valor
         juce::Path bg;  bg.addCentredArc (c.x, c.y, arcR, arcR, 0.0f, startAng, endAng, true);
         g.setColour (th.arcBg);
-        g.strokePath (bg, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath (bg, juce::PathStrokeType (2.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         juce::Path val; val.addCentredArc (c.x, c.y, arcR, arcR, 0.0f, startAng, ang, true);
-        g.setColour (accent.withAlpha (0.35f));
-        g.strokePath (val, juce::PathStrokeType (6.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour (accent.withAlpha (0.30f));
+        g.strokePath (val, juce::PathStrokeType (5.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         g.setColour (accent);
-        g.strokePath (val, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.strokePath (val, juce::PathStrokeType (2.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-        // corpo
-        auto bodyR = r - 7.0f;
+        // --- corpo metálico escovado ---
+        auto bodyR = r - 8.0f;
         juce::Rectangle<float> body (c.x - bodyR, c.y - bodyR, bodyR*2.0f, bodyR*2.0f);
-        g.setColour (juce::Colours::black.withAlpha (0.45f));
-        g.fillEllipse (body.translated (0, 2.0f));
-        juce::ColourGradient cg (th.knobHi, body.getX(), body.getY(),
-                                 th.knobLo, body.getX(), body.getBottom(), false);
+
+        // sombra
+        g.setColour (juce::Colours::black.withAlpha (0.5f));
+        g.fillEllipse (body.translated (0, 2.5f).expanded (1.0f));
+
+        // base metálica (gradiente vertical)
+        juce::ColourGradient cg (th.knobHi, body.getCentreX(), body.getY(),
+                                 th.knobLo, body.getCentreX(), body.getBottom(), false);
         cg.addColour (0.5, th.knobMid);
         g.setGradientFill (cg);
         g.fillEllipse (body);
-        g.setColour (th.dark ? juce::Colours::black.withAlpha (0.5f) : th.stroke);
-        g.drawEllipse (body, 1.2f);
-        // brilho superior
-        g.setColour (juce::Colours::white.withAlpha (th.dark ? 0.06f : 0.5f));
-        g.fillEllipse (body.reduced (bodyR*0.18f).withY (body.getY()+bodyR*0.12f).withHeight (bodyR*0.8f));
+
+        // brilho radial superior-esquerdo
+        juce::ColourGradient sheen (juce::Colours::white.withAlpha (th.dark ? 0.16f : 0.55f),
+                                    body.getX() + bodyR*0.55f, body.getY() + bodyR*0.45f,
+                                    juce::Colours::transparentWhite,
+                                    body.getX() + bodyR*0.55f, body.getBottom(), true);
+        g.setGradientFill (sheen);
+        g.fillEllipse (body);
+
+        // anéis concêntricos (escovado)
+        for (int i = 1; i <= 5; ++i)
+        {
+            float rr = bodyR * (1.0f - i * 0.15f);
+            juce::Rectangle<float> ring (c.x - rr, c.y - rr, rr*2.0f, rr*2.0f);
+            g.setColour ((i % 2 ? juce::Colours::white : juce::Colours::black)
+                            .withAlpha (th.dark ? 0.04f : 0.06f));
+            g.drawEllipse (ring, 1.0f);
+        }
+
+        // cavidade central
+        float capR = bodyR * 0.34f;
+        juce::Rectangle<float> cap (c.x - capR, c.y - capR, capR*2.0f, capR*2.0f);
+        juce::ColourGradient cc (th.knobLo, cap.getCentreX(), cap.getY(),
+                                 th.knobMid, cap.getCentreX(), cap.getBottom(), false);
+        g.setGradientFill (cc);
+        g.fillEllipse (cap);
+
+        // rim
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.drawEllipse (body, 1.4f);
+        g.setColour (juce::Colours::white.withAlpha (th.dark ? 0.12f : 0.4f));
+        g.drawEllipse (body.reduced (1.4f), 1.0f);
 
         // indicador
-        auto tip  = c.getPointOnCircumference (bodyR - 3.0f, ang);
-        auto base = c.getPointOnCircumference (bodyR * 0.35f, ang);
-        g.setColour (accent.brighter (0.2f));
+        auto tip  = c.getPointOnCircumference (bodyR - 2.5f, ang);
+        auto base = c.getPointOnCircumference (bodyR * 0.3f, ang);
+        g.setColour (juce::Colours::black.withAlpha (0.4f));
+        g.drawLine (base.x, base.y+1.0f, tip.x, tip.y+1.0f, 3.2f);
+        g.setColour (accent.brighter (0.35f));
         g.drawLine ({ base, tip }, 2.6f);
-        g.fillEllipse (tip.x - 2.2f, tip.y - 2.2f, 4.4f, 4.4f);
+        g.fillEllipse (tip.x - 2.3f, tip.y - 2.3f, 4.6f, 4.6f);
     }
 
     juce::Label* createSliderTextBox (juce::Slider& s) override
