@@ -37,6 +37,8 @@ public:
     // meters (lidos pela UI, sem locks)
     std::atomic<float> inPeakL  { 0.0f }, inPeakR  { 0.0f };
     std::atomic<float> outPeakL { 0.0f }, outPeakR { 0.0f };
+    std::atomic<float> inPeakM  { 0.0f }, inPeakS  { 0.0f };
+    std::atomic<float> outPeakM { 0.0f }, outPeakS { 0.0f };
     std::atomic<float> grLowVal { 0.0f }, grHighVal{ 0.0f };
 
     static juce::StringArray paramIDs();
@@ -46,7 +48,7 @@ private:
 
     MV2Engine engL, engR;
 
-    std::unique_ptr<juce::dsp::Oversampling<float>> os2, os4, os8;
+    std::unique_ptr<juce::dsp::Oversampling<float>> os2, os4, os8, os16, os32;
     int lastFactor = 1;
     double baseSR = 44100.0;
 

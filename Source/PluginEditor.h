@@ -244,6 +244,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
 
 private:
     struct KnobInfo { juce::Slider* s; juce::String name; std::function<juce::String(double)> fmt;
@@ -297,8 +298,10 @@ private:
     std::map<juce::String,float> slotA, slotB;
     juce::StringArray presetNames;
 
-    // meters suavizados
+    // meters suavizados (L/R e M/S)
     float mInL=0, mInR=0, mOutL=0, mOutR=0;
+    float mInM=0, mInS=0, mOutM=0, mOutS=0;
+    juce::String meterLblL = "L", meterLblR = "R";
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PiradexMVAudioProcessorEditor)
 };

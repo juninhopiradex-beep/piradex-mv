@@ -47,7 +47,7 @@ PiradexMVAudioProcessor::createLayout()
     p.push_back (std::make_unique<FP>(juce::ParameterID{"output",1}, "Output", gain24, 0.0f));
 
     p.push_back (std::make_unique<CP>(juce::ParameterID{"os",1}, "Oversampling",
-                 juce::StringArray{"1x","2x","4x","8x"}, 0));
+                 juce::StringArray{"1x","2x","4x","8x","16x","32x"}, 0));
     p.push_back (std::make_unique<CP>(juce::ParameterID{"response",1}, "Response",
                  juce::StringArray{"Fast","Medium","Slow"}, 1));
     p.push_back (std::make_unique<CP>(juce::ParameterID{"mode",1}, "Stereo Mode",
@@ -67,15 +67,17 @@ void PiradexMVAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     baseSR = sampleRate;
     const size_t nCh = (size_t) juce::jmax (1, getTotalNumInputChannels());
 
-    os2 = std::make_unique<juce::dsp::Oversampling<float>>(nCh, 1,
-            juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR);
-    os4 = std::make_unique<juce::dsp::Oversampling<float>>(nCh, 2,
-            juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR);
-    os8 = std::make_unique<juce::dsp::Oversampling<float>>(nCh, 3,
-            juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR);
-    os2->initProcessing ((size_t) samplesPerBlock);
-    os4->initProcessing ((size_t) samplesPerBlock);
-    os8->initProcessing ((size_t) samplesPerBlock);
+    using OS = juce::dsp::Oversampling<float>;
+    os2  = std::make_unique<OS>(nCh, 1, OS::filterHalfBandPolyphaseIIR);
+    os4  = std::make_unique<OS>(nCh, 2, OS::filterHalfBandPolyphaseIIR);
+    os8  = std::make_unique<OS>(nCh, 3, OS::filterHalfBandPolyphaseIIR);
+    os16 = std::make_unique<OS>(nCh, 4, OS::filterHalfBandPolyphaseIIR);
+    os32 = std::make_unique<OS>(nCh, 5, OS::filterHalfBandPolyphaseIIR);
+    os2->initProcessing  ((size_t) samplesPerBlock);
+    os4->initProcessing  ((size_t) samplesPerBlock);
+    os8->initProcessing  ((size_t) samplesPerBlock);
+    os16->initProcessing ((size_t) samplesPerBlock);
+    os32->initProcessing ((size_t) samplesPerBlock);
 
     setEngineRate (sampleRate);
     lastFactor = 1;
@@ -92,8 +94,9 @@ bool PiradexMVAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts
 
 juce::dsp::Oversampling<float>* PiradexMVAudioProcessor::currentOS (int factor)
 {
-    switch (factor) { case 2: return os2.get(); case 4: return os4.get();
-                      case 8: return os8.get(); default: return nullptr; }
+    switch (factor) { case 2: return os2.get();  case 4:  return os4.get();
+                      case 8: return os8.get();  case 16: return os16.get();
+                      case 32: return os32.get(); default: return nullptr; }
 }
 
 void PiradexMVAudioProcessor::setEngineRate (double effectiveSR)
@@ -174,10 +177,25 @@ void PiradexMVAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     // ganho de entrada (afeta o IN meter e a deteção)
     buffer.applyGain (juce::Decibels::decibelsToGain (inTrim));
 
+    auto msPeak = [] (const juce::AudioBuffer<float>& b, int ns, float& mPk, float& sPk)
+    {
+        mPk = sPk = 0.0f;
+        if (b.getNumChannels() < 2) { mPk = b.getMagnitude (0, 0, ns); sPk = 0.0f; return; }
+        const float* L = b.getReadPointer (0);
+        const float* R = b.getReadPointer (1);
+        for (int n = 0; n < ns; ++n)
+        {
+            mPk = juce::jmax (mPk, std::abs (0.5f * (L[n] + R[n])));
+            sPk = juce::jmax (sPk, std::abs (0.5f * (L[n] - R[n])));
+        }
+    };
+
     inPeakL.store (buffer.getMagnitude (0, 0, numSamples));
     if (numCh > 1) inPeakR.store (buffer.getMagnitude (1, 0, numSamples));
+    { float m,s; msPeak (buffer, numSamples, m, s); inPeakM.store (m); inPeakS.store (s); }
 
-    const int factor = (osSel == 1 ? 2 : osSel == 2 ? 4 : osSel == 3 ? 8 : 1);
+    const int factor = (osSel == 1 ? 2 : osSel == 2 ? 4 : osSel == 3 ? 8
+                        : osSel == 4 ? 16 : osSel == 5 ? 32 : 1);
     if (factor != lastFactor) { setEngineRate (baseSR * factor); lastFactor = factor; }
 
     for (auto* e : { &engL, &engR })
@@ -240,6 +258,7 @@ void PiradexMVAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     outPeakL.store (buffer.getMagnitude (0, 0, numSamples));
     if (numCh > 1) outPeakR.store (buffer.getMagnitude (1, 0, numSamples));
+    { float m,s; msPeak (buffer, numSamples, m, s); outPeakM.store (m); outPeakS.store (s); }
     grLowVal .store (engL.grLow);
     grHighVal.store (engL.grHigh);
 }

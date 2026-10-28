@@ -16,10 +16,17 @@ static std::vector<std::pair<juce::String, std::map<juce::String,float>>> makePr
     using M = std::map<juce::String,float>;
     std::vector<std::pair<juce::String, M>> v;
     v.push_back ({ "Vocal Lift",      M{{"inputTrim",0},{"lowAmt",70},{"lowThresh",-28},{"lowMaxGain",12},{"trim",0},{"mix",100},{"highAmt",60},{"highThresh",-6},{"highRatio",4},{"output",-1},{"os",1},{"response",1},{"mode",0}} });
-    v.push_back ({ "Master Control",  M{{"inputTrim",0},{"lowAmt",40},{"lowThresh",-34},{"lowMaxGain",8}, {"trim",0},{"mix",100},{"highAmt",75},{"highThresh",-3},{"highRatio",6},{"output",0},{"os",1},{"response",2},{"mode",0}} });
     v.push_back ({ "Vocal Smooth",    M{{"inputTrim",0},{"lowAmt",55},{"lowThresh",-30},{"lowMaxGain",10},{"trim",0},{"mix",100},{"highAmt",45},{"highThresh",-8},{"highRatio",3},{"output",-1},{"os",0},{"response",1},{"mode",0}} });
-    v.push_back ({ "Drum Glue",       M{{"inputTrim",0},{"lowAmt",50},{"lowThresh",-24},{"lowMaxGain",9}, {"trim",0},{"mix",100},{"highAmt",65},{"highThresh",-5},{"highRatio",8},{"output",-1},{"os",1},{"response",0},{"mode",1}} });
+    v.push_back ({ "Vocal Presence",  M{{"inputTrim",0},{"lowAmt",80},{"lowThresh",-26},{"lowMaxGain",14},{"trim",0},{"mix",100},{"highAmt",55},{"highThresh",-5},{"highRatio",5},{"output",-1},{"os",1},{"response",0},{"mode",0}} });
+    v.push_back ({ "Master Control",  M{{"inputTrim",0},{"lowAmt",40},{"lowThresh",-34},{"lowMaxGain",8}, {"trim",0},{"mix",100},{"highAmt",75},{"highThresh",-3},{"highRatio",6},{"output",0},{"os",1},{"response",2},{"mode",0}} });
+    v.push_back ({ "Master Glue",     M{{"inputTrim",0},{"lowAmt",35},{"lowThresh",-38},{"lowMaxGain",6}, {"trim",0},{"mix",80}, {"highAmt",55},{"highThresh",-4},{"highRatio",4},{"output",-0.5f},{"os",2},{"response",2},{"mode",2}} });
     v.push_back ({ "Bus Transparent", M{{"inputTrim",0},{"lowAmt",30},{"lowThresh",-40},{"lowMaxGain",6}, {"trim",0},{"mix",100},{"highAmt",50},{"highThresh",-2},{"highRatio",4},{"output",0},{"os",2},{"response",2},{"mode",0}} });
+    v.push_back ({ "Drum Glue",       M{{"inputTrim",0},{"lowAmt",50},{"lowThresh",-24},{"lowMaxGain",9}, {"trim",0},{"mix",100},{"highAmt",65},{"highThresh",-5},{"highRatio",8},{"output",-1},{"os",1},{"response",0},{"mode",1}} });
+    v.push_back ({ "Drum Punch",      M{{"inputTrim",0},{"lowAmt",35},{"lowThresh",-22},{"lowMaxGain",7}, {"trim",0},{"mix",100},{"highAmt",80},{"highThresh",-6},{"highRatio",10},{"output",-1},{"os",2},{"response",0},{"mode",0}} });
+    v.push_back ({ "Bass Tight",      M{{"inputTrim",0},{"lowAmt",45},{"lowThresh",-26},{"lowMaxGain",8}, {"trim",0},{"mix",100},{"highAmt",70},{"highThresh",-4},{"highRatio",6},{"output",-1},{"os",1},{"response",1},{"mode",1}} });
+    v.push_back ({ "Acoustic Open",   M{{"inputTrim",0},{"lowAmt",65},{"lowThresh",-32},{"lowMaxGain",12},{"trim",0},{"mix",100},{"highAmt",40},{"highThresh",-8},{"highRatio",3},{"output",-1},{"os",1},{"response",1},{"mode",0}} });
+    v.push_back ({ "Wide Side",       M{{"inputTrim",0},{"lowAmt",55},{"lowThresh",-30},{"lowMaxGain",10},{"trim",0},{"mix",100},{"highAmt",45},{"highThresh",-6},{"highRatio",4},{"output",-1},{"os",1},{"response",1},{"mode",2}} });
+    v.push_back ({ "Loud & Proud",    M{{"inputTrim",0},{"lowAmt",60},{"lowThresh",-28},{"lowMaxGain",14},{"trim",0},{"mix",100},{"highAmt",85},{"highThresh",-3},{"highRatio",12},{"output",0},{"os",2},{"response",0},{"mode",0}} });
     return v;
 }
 static auto presetTable = makePresets();
@@ -51,7 +58,7 @@ PiradexMVAudioProcessorEditor::PiradexMVAudioProcessorEditor (PiradexMVAudioProc
 
     for (auto* sg : { &respSeg, &osSeg, &modeSeg }) addAndMakeVisible (*sg);
     respSeg.setItems ({ "FAST","MEDIUM","SLOW" });
-    osSeg.setItems   ({ "1x","2x","4x","8x" });
+    osSeg.setItems   ({ "1x","2x","4x","8x","16x","32x" });
     modeSeg.setItems ({ "STEREO","DUAL MONO","MID-SIDE" });
 
     for (auto* b : { &bypassBtn,&muteBtn,&dimBtn,&monoBtn }) addAndMakeVisible (*b);
@@ -186,6 +193,18 @@ void PiradexMVAudioProcessorEditor::toggleAB (bool toB)
     repaint();
 }
 
+void PiradexMVAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
+{
+    if (! presetNameArea.contains (e.getPosition())) return;
+    juce::PopupMenu m;
+    m.setLookAndFeel (&lnf);
+    for (int i = 0; i < presetNames.size(); ++i)
+        m.addItem (i + 1, presetNames[i], true, i == currentPreset);
+    m.showMenuAsync (juce::PopupMenu::Options()
+                        .withTargetScreenArea (localAreaToGlobal (presetNameArea)),
+                     [this] (int r) { if (r > 0) applyPreset (r - 1); });
+}
+
 //==============================================================================
 void PiradexMVAudioProcessorEditor::timerCallback()
 {
@@ -194,8 +213,23 @@ void PiradexMVAudioProcessorEditor::timerCallback()
     auto sm = [] (float& s, float t){ s += (t - s) * (t > s ? 0.5f : 0.12f); };
     sm (mInL, norm (proc.inPeakL.load()));  sm (mInR, norm (proc.inPeakR.load()));
     sm (mOutL,norm (proc.outPeakL.load())); sm (mOutR,norm (proc.outPeakR.load()));
-    inMeter.setLevels (mInL, mInR);
-    outMeter.setLevels (mOutL, mOutR);
+    sm (mInM, norm (proc.inPeakM.load()));  sm (mInS, norm (proc.inPeakS.load()));
+    sm (mOutM,norm (proc.outPeakM.load())); sm (mOutS,norm (proc.outPeakS.load()));
+
+    // meters mostram L/R ou M/S conforme o Output Mode
+    const int mode = (int) proc.apvts.getRawParameterValue ("mode")->load();
+    if (mode == 2) // Mid/Side
+    {
+        meterLblL = "M"; meterLblR = "S";
+        inMeter.setLevels (mInM, mInS);
+        outMeter.setLevels (mOutM, mOutS);
+    }
+    else
+    {
+        meterLblL = "L"; meterLblR = "R";
+        inMeter.setLevels (mInL, mInR);
+        outMeter.setLevels (mOutL, mOutR);
+    }
     repaint();
 }
 
@@ -245,17 +279,19 @@ void PiradexMVAudioProcessorEditor::drawHeader (juce::Graphics& g, juce::Rectang
     g.fillRect (a.getX(), a.getBottom()-1.5f, a.getWidth(), 1.5f);
 
     auto hr = area.reduced (18, 0);
-    // título
-    auto title = hr.removeFromLeft (300);
-    g.setColour (th.text);
-    g.setFont (juce::Font (juce::FontOptions (28.0f, juce::Font::bold)));
-    g.drawText ("LEVEL-X", title.removeFromTop (44).withTrimmedTop (8), juce::Justification::bottomLeft);
+    // título "LEVEL-X by Piradex" (juntos)
+    auto title = hr.removeFromLeft (330);
+    auto nameRow = title.removeFromTop (44).withTrimmedTop (8);
+    juce::Font f26 (juce::FontOptions (28.0f, juce::Font::bold));
+    float wname = f26.getStringWidthFloat ("LEVEL-X");
+    g.setColour (th.text); g.setFont (f26);
+    g.drawText ("LEVEL-X", nameRow.withWidth ((int) wname + 4), juce::Justification::bottomLeft);
     g.setColour (th.blue);
+    g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
+    g.drawText ("by Piradex", nameRow.withTrimmedLeft ((int) wname + 12), juce::Justification::bottomLeft);
+    g.setColour (th.sub);
     g.setFont (juce::Font (juce::FontOptions (9.5f, juce::Font::bold)));
     g.drawText ("DUAL-LEVEL DYNAMIC PROCESSOR", title, juce::Justification::topLeft);
-
-    // logo beatfreak à direita
-    drawBeatfreakLogo (g, hr.removeFromRight (165).toFloat().withSizeKeepingCentre (165, 34));
 
     // caixa do preset
     if (! presetNameArea.isEmpty())
@@ -359,14 +395,15 @@ void PiradexMVAudioProcessorEditor::paint (juce::Graphics& g)
         g.setFont (juce::Font (juce::FontOptions (8.5f)));
         g.drawText (pk(pL) + "   " + pk(pR), head, juce::Justification::centred);
     };
-    meterCol (inCol,  "IN",  proc.inPeakL.load(),  proc.inPeakR.load());
-    meterCol (outCol, "OUT", proc.outPeakL.load(), proc.outPeakR.load());
+    const bool ms = (int) proc.apvts.getRawParameterValue ("mode")->load() == 2;
+    meterCol (inCol,  "IN",  ms?proc.inPeakM.load():proc.inPeakL.load(),  ms?proc.inPeakS.load():proc.inPeakR.load());
+    meterCol (outCol, "OUT", ms?proc.outPeakM.load():proc.outPeakL.load(), ms?proc.outPeakS.load():proc.outPeakR.load());
 
-    // L/R por baixo dos meters
+    // L/R (ou M/S) por baixo dos meters
     auto lr = [&] (juce::Rectangle<int> col){
         g.setColour (th.sub); g.setFont (juce::Font (juce::FontOptions (8.0f, juce::Font::bold)));
         auto row = col.withTop (inMeter.getBottom()).removeFromTop (12);
-        g.drawText ("L        R", row, juce::Justification::centred);
+        g.drawText (meterLblL + "        " + meterLblR, row, juce::Justification::centred);
     };
     lr (inCol); lr (outCol);
 
@@ -397,6 +434,22 @@ void PiradexMVAudioProcessorEditor::paint (juce::Graphics& g)
 
     drawKnobLabels (g);
 
+    // valor dos faders (AMOUNT %)
+    auto faderVal = [&] (juce::Slider& f)
+    {
+        auto b = f.getBounds(); int cx = b.getCentreX();
+        g.setColour (th.textDim);
+        g.setFont (juce::Font (juce::FontOptions (9.0f, juce::Font::bold)));
+        g.drawText ("AMOUNT", cx-40, b.getBottom()+4, 80, 12, juce::Justification::centred);
+        juce::Rectangle<float> vb ((float) cx-28, (float) b.getBottom()+16, 56.0f, 17.0f);
+        g.setColour (th.slot);   g.fillRoundedRectangle (vb, 3.5f);
+        g.setColour (th.stroke); g.drawRoundedRectangle (vb, 3.5f, 1.0f);
+        g.setColour (th.text);
+        g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+        g.drawText (juce::String ((int) f.getValue()) + " %", vb, juce::Justification::centred);
+    };
+    faderVal (lowFader); faderVal (highFader);
+
     g.setColour (th.sub);
     g.setFont (juce::Font (juce::FontOptions (9.5f)));
     g.drawText ("Criador e Desenvolvedor  Ricardo Amorim / Juninho Piradex      LEVEL-X  v1.0.0",
@@ -415,8 +468,8 @@ void PiradexMVAudioProcessorEditor::resized()
     // ---- header controls ----
     {
         auto band = headerRect.reduced (18, 0).withSizeKeepingCentre (headerRect.getWidth()-36, 30);
-        band.removeFromLeft (300);              // título
-        band.removeFromRight (165);             // logo
+        band.removeFromLeft (330);              // título "LEVEL-X by Piradex"
+        band.removeFromRight (10);              // margem direita
         band.removeFromRight (6);
         gearBtn.setBounds (band.removeFromRight (30)); band.removeFromRight (8);
         bBtn.setBounds (band.removeFromRight (28));
@@ -467,7 +520,7 @@ void PiradexMVAudioProcessorEditor::resized()
     {
         auto cont = lowPanel.reduced (12); cont.removeFromTop (36);
         auto fcol = cont.removeFromLeft (70);
-        lowFader.setBounds (fcol.reduced (12, 6));
+        { auto fc = fcol.reduced (12, 6); fc.removeFromBottom (36); lowFader.setBounds (fc); }
         cont.removeFromLeft (6);
         placeKnob (lowThreshK,  cont.removeFromTop (cont.getHeight()/2));
         placeKnob (lowMaxGainK, cont);
@@ -476,7 +529,7 @@ void PiradexMVAudioProcessorEditor::resized()
     {
         auto cont = highPanel.reduced (12); cont.removeFromTop (36);
         auto fcol = cont.removeFromLeft (70);
-        highFader.setBounds (fcol.reduced (12, 6));
+        { auto fc = fcol.reduced (12, 6); fc.removeFromBottom (36); highFader.setBounds (fc); }
         cont.removeFromLeft (6);
         placeKnob (highThreshK, cont.removeFromTop (cont.getHeight()/2));
         placeKnob (highRatioK,  cont);
