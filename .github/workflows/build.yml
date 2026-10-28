@@ -15,6 +15,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check signing secrets
+        run: |
+          if [ -n "${{ secrets.MACOS_CERTIFICATE }}" ]; then echo "HAS_SIGN=true" >> $GITHUB_ENV; else echo "HAS_SIGN=false" >> $GITHUB_ENV; fi
+          if [ -n "${{ secrets.APPLE_ID }}" ];        then echo "HAS_NOTARIZE=true" >> $GITHUB_ENV; else echo "HAS_NOTARIZE=false" >> $GITHUB_ENV; fi
+
       - name: Configure
         run: cmake -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
 
@@ -28,6 +33,42 @@ jobs:
           find build -name "*.vst3"      -exec cp -R {} out/ \; || true
           find build -name "*.app"       -exec cp -R {} out/ \; || true
           ls -R out
+
+      - name: Import signing certificates
+        if: env.HAS_SIGN == 'true'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          MACOS_INSTALLER_CERTIFICATE: ${{ secrets.MACOS_INSTALLER_CERTIFICATE }}
+          MACOS_INSTALLER_CERTIFICATE_PWD: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_PWD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -e
+          echo "$MACOS_CERTIFICATE" | base64 --decode > app.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import app.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+          if [ -n "$MACOS_INSTALLER_CERTIFICATE" ]; then
+            echo "$MACOS_INSTALLER_CERTIFICATE" | base64 --decode > inst.p12
+            security import inst.p12 -k build.keychain -P "$MACOS_INSTALLER_CERTIFICATE_PWD" -T /usr/bin/productbuild
+          fi
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security find-identity -v build.keychain
+
+      - name: Codesign plugins
+        if: env.HAS_SIGN == 'true'
+        env:
+          SIGN_ID: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          set -e
+          for b in out/LEVEL-X.vst3 out/LEVEL-X.component out/LEVEL-X.app; do
+            [ -e "$b" ] || continue
+            codesign --force --deep --options runtime --timestamp \
+              --sign "$SIGN_ID" "$b"
+            codesign --verify --deep --strict --verbose=2 "$b"
+          done
 
       - name: Zip plugins
         run: |
@@ -56,12 +97,32 @@ jobs:
             --scripts installer/scripts \
             --root pkgroot/au build-pkg/au.pkg
 
-          # instalador combinado
-          productbuild --distribution installer/Distribution.xml \
-            --package-path build-pkg \
-            --resources installer/resources \
-            "LEVEL-X-Installer.pkg"
+          # instalador combinado (assinado se houver certificado de Installer)
+          if [ "$HAS_SIGN" = "true" ] && [ -n "${{ secrets.MACOS_INSTALLER_IDENTITY }}" ]; then
+            productbuild --distribution installer/Distribution.xml \
+              --package-path build-pkg --resources installer/resources \
+              --sign "${{ secrets.MACOS_INSTALLER_IDENTITY }}" \
+              "LEVEL-X-Installer.pkg"
+          else
+            productbuild --distribution installer/Distribution.xml \
+              --package-path build-pkg --resources installer/resources \
+              "LEVEL-X-Installer.pkg"
+          fi
           ls -la LEVEL-X-Installer.pkg
+
+      - name: Notarize installer
+        if: env.HAS_NOTARIZE == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          set -e
+          xcrun notarytool submit "LEVEL-X-Installer.pkg" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "LEVEL-X-Installer.pkg"
+          xcrun stapler validate "LEVEL-X-Installer.pkg" || true
 
       - name: Upload artefacts
         uses: actions/upload-artifact@v4

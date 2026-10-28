@@ -79,7 +79,7 @@ public:
             lGainDb = juce::jmin (lift, lowMaxGain) * lowAmt;
         }
 
-        // HIGH: downward limiting — reduz acima do threshold com ratio
+        // HIGH: downward compression — reduz acima do threshold com ratio
         float hGainDb = 0.0f;
         if (db > highThresh)
         {
@@ -87,9 +87,13 @@ public:
             hGainDb = -(over - over / highRatio) * highAmt;
         }
 
+        // makeup gain automático (como no MV2 real): compensa a redução,
+        // deixando o sinal mais presente/alto. Valor estático pelas definições.
+        float hMakeupDb = juce::jmin ((-highThresh) * (1.0f - 1.0f / highRatio) * highAmt * 0.6f, 12.0f);
+
         grLow  = lGainDb;
         grHigh = hGainDb;
-        return juce::Decibels::decibelsToGain (lGainDb + hGainDb);
+        return juce::Decibels::decibelsToGain (lGainDb + hGainDb + hMakeupDb);
     }
 
     float grLow = 0.0f, grHigh = 0.0f;
