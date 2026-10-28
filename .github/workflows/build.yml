@@ -5,6 +5,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-macos:
     runs-on: macos-latest
@@ -26,8 +29,23 @@ jobs:
           find build -name "*.app"       -exec cp -R {} out/ \; || true
           ls -R out
 
+      - name: Zip plugins
+        run: |
+          cd out
+          zip -r ../LEVEL-X-macOS.zip . -x "*.DS_Store"
+          cd ..
+          ls -la LEVEL-X-macOS.zip
+
       - name: Upload artefacts
         uses: actions/upload-artifact@v4
         with:
-          name: PiradexMV-macOS
+          name: LEVEL-X-macOS
           path: out/
+
+      - name: Publish release (download via github.com)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: LEVEL-X latest build
+          files: LEVEL-X-macOS.zip
+          fail_on_unmatched_files: true
