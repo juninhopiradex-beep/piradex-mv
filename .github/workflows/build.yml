@@ -155,13 +155,24 @@ jobs:
           New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
             -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force | Out-Null
 
+      - name: Diagnostics
+        shell: pwsh
+        run: |
+          cmake --version *>&1 | Tee-Object -FilePath win-configure.log
+          "--- generators ---" | Tee-Object -Append win-configure.log
+          cmake --help *>&1 | Select-String -Pattern "Visual Studio|Ninja" | Tee-Object -Append win-configure.log
+
       - name: Configure
         shell: pwsh
-        run: cmake -B C:/b -G "Visual Studio 17 2022" -A x64
+        run: |
+          cmake -B C:/b -G "Visual Studio 17 2022" -A x64 *>&1 | Tee-Object -Append win-configure.log
+          exit $LASTEXITCODE
 
       - name: Build (Release)
         shell: pwsh
-        run: cmake --build C:/b --config Release
+        run: |
+          cmake --build C:/b --config Release *>&1 | Tee-Object -Append win-configure.log
+          exit $LASTEXITCODE
 
       - name: Capture logs on failure
         if: failure()
@@ -169,7 +180,8 @@ jobs:
         run: |
           Copy-Item C:/b/CMakeFiles/CMakeError.log  win-CMakeError.log  -ErrorAction SilentlyContinue
           Copy-Item C:/b/CMakeFiles/CMakeOutput.log win-CMakeOutput.log -ErrorAction SilentlyContinue
-          "see attached logs" | Out-File win-note.txt
+          if (-not (Test-Path win-CMakeError.log))  { "no CMakeError.log"  | Out-File win-CMakeError.log }
+          if (-not (Test-Path win-CMakeOutput.log)) { "no CMakeOutput.log" | Out-File win-CMakeOutput.log }
 
       - name: Publish logs on failure
         if: failure()
@@ -178,9 +190,9 @@ jobs:
           tag_name: winlogs
           name: Windows build logs
           files: |
+            win-configure.log
             win-CMakeError.log
             win-CMakeOutput.log
-            win-note.txt
 
       - name: Collect VST3
         shell: pwsh
