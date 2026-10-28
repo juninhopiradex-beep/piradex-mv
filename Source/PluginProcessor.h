@@ -35,16 +35,17 @@ public:
     juce::AudioProcessorValueTreeState apvts;
 
     // meters (lidos pela UI, sem locks)
+    std::atomic<float> inPeakL  { 0.0f }, inPeakR  { 0.0f };
     std::atomic<float> outPeakL { 0.0f }, outPeakR { 0.0f };
-    std::atomic<float> outRmsL  { 0.0f }, outRmsR  { 0.0f };
-    std::atomic<float> grLow    { 0.0f }, grHigh   { 0.0f };
+    std::atomic<float> grLowVal { 0.0f }, grHighVal{ 0.0f };
+
+    static juce::StringArray paramIDs();
 
 private:
     juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
 
     MV2Engine engL, engR;
 
-    // oversampling: 1x (direto), 2x, 4x, 8x
     std::unique_ptr<juce::dsp::Oversampling<float>> os2, os4, os8;
     int lastFactor = 1;
     double baseSR = 44100.0;

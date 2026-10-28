@@ -5,8 +5,10 @@
 //==============================================================================
 //  LEVEL-X — motor de dinâmica de dois níveis (estilo Waves MV2)
 //
-//  LOW  -> upward compression: levanta o que está ABAIXO do threshold.
-//  HIGH -> downward limiting: controla os picos ACIMA do threshold.
+//  LOW  -> UPWARD COMPRESSION: levanta o que está ABAIXO do threshold
+//          (Threshold, Max Gain, Amount).
+//  HIGH -> DOWNWARD LIMITING : controla os picos ACIMA do threshold
+//          (Threshold, Ratio, Amount).
 //  Response -> attack/release do detector (Fast / Medium / Slow).
 //
 //  computeGain(x) devolve o ganho LINEAR a aplicar à amostra, para permitir
@@ -51,8 +53,15 @@ public:
     }
     void reset() { det.reset(); }
 
-    void setLow  (float v) { lowAmt  = juce::jlimit (0.0f, 1.0f, v); }
-    void setHigh (float v) { highAmt = juce::jlimit (0.0f, 1.0f, v); }
+    // LOW (upward)
+    void setLowThresh  (float dB) { lowThresh  = dB; }
+    void setLowMaxGain (float dB) { lowMaxGain = dB; }
+    void setLowAmount  (float a)  { lowAmt  = juce::jlimit (0.0f, 1.0f, a); }
+    // HIGH (downward / limiter)
+    void setHighThresh (float dB) { highThresh = dB; }
+    void setHighRatio  (float r)  { highRatio  = juce::jmax (1.0f, r); }
+    void setHighAmount (float a)  { highAmt = juce::jlimit (0.0f, 1.0f, a); }
+
     void setResponse (int r) { if (r != response) { response = r; applyResponse (r); } }
 
     // devolve o ganho linear para a amostra 'x' (detetor alimentado por 'x')
@@ -61,21 +70,21 @@ public:
         float e  = det.process (x);
         float db = juce::Decibels::gainToDecibels (e + 1.0e-9f);
 
-        // LOW: upward
-        float lThresh  = -12.0f - lowAmt * 26.0f;
-        float lMaxGain =  lowAmt * 20.0f;
-        float lGainDb  = 0.0f;
-        if (db < lThresh)
-            lGainDb = juce::jmin ((lThresh - db) * (1.0f - 1.0f / 2.5f), lMaxGain);
-
-        // HIGH: downward (limiter)
-        float hThresh = 0.0f - highAmt * 22.0f;
-        float hRatio  = 1.0f + highAmt * 24.0f;
-        float hGainDb = 0.0f;
-        if (db > hThresh)
+        // LOW: upward compression — levanta abaixo do threshold, limitado a Max Gain
+        float lGainDb = 0.0f;
+        if (db < lowThresh)
         {
-            float over = db - hThresh;
-            hGainDb = -(over - over / hRatio);
+            const float upRatio = 2.5f;                 // quanto do défice é recuperado
+            float lift = (lowThresh - db) * (1.0f - 1.0f / upRatio);
+            lGainDb = juce::jmin (lift, lowMaxGain) * lowAmt;
+        }
+
+        // HIGH: downward limiting — reduz acima do threshold com ratio
+        float hGainDb = 0.0f;
+        if (db > highThresh)
+        {
+            float over = db - highThresh;
+            hGainDb = -(over - over / highRatio) * highAmt;
         }
 
         grLow  = lGainDb;
@@ -97,6 +106,7 @@ private:
     }
     double sr = 44100.0;
     LevelDetector det;
-    float lowAmt = 0.0f, highAmt = 0.0f;
+    float lowThresh = -28.0f, lowMaxGain = 12.0f, lowAmt = 0.5f;
+    float highThresh = -6.0f, highRatio = 4.0f,  highAmt = 0.5f;
     int response = 1;
 };

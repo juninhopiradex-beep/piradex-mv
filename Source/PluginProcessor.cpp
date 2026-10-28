@@ -10,6 +10,13 @@ PiradexMVAudioProcessor::PiradexMVAudioProcessor()
 {
 }
 
+juce::StringArray PiradexMVAudioProcessor::paramIDs()
+{
+    return { "inputTrim","lowAmt","lowThresh","lowMaxGain","trim","mix",
+             "highAmt","highThresh","highRatio","output",
+             "os","response","mode","bypass","mute","dim","mono" };
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout
 PiradexMVAudioProcessor::createLayout()
 {
@@ -18,28 +25,38 @@ PiradexMVAudioProcessor::createLayout()
     using BP = juce::AudioParameterBool;
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> p;
 
-    auto dbRange = juce::NormalisableRange<float>(-60.0f, 12.0f, 0.1f);
+    auto gain24 = juce::NormalisableRange<float>(-24.0f, 24.0f, 0.1f);
+    auto thr    = juce::NormalisableRange<float>(-60.0f,  0.0f, 0.1f);
 
-    p.push_back (std::make_unique<FP>(juce::ParameterID{"low",1},  "Low",    dbRange, 0.0f));
-    p.push_back (std::make_unique<FP>(juce::ParameterID{"high",1}, "High",   dbRange, 0.0f));
-    p.push_back (std::make_unique<FP>(juce::ParameterID{"output",1},"Output", dbRange, 0.0f));
+    p.push_back (std::make_unique<FP>(juce::ParameterID{"inputTrim",1}, "Input Trim", gain24, 0.0f));
+
+    p.push_back (std::make_unique<FP>(juce::ParameterID{"lowAmt",1},    "Low",        juce::NormalisableRange<float>(0.0f,100.0f,0.1f), 50.0f));
+    p.push_back (std::make_unique<FP>(juce::ParameterID{"lowThresh",1}, "Low Thresh", thr, -28.0f));
+    p.push_back (std::make_unique<FP>(juce::ParameterID{"lowMaxGain",1},"Max Gain",   juce::NormalisableRange<float>(0.0f,24.0f,0.1f), 12.0f));
+
     p.push_back (std::make_unique<FP>(juce::ParameterID{"trim",1}, "Trim",
                  juce::NormalisableRange<float>(-12.0f,12.0f,0.1f), 0.0f));
     p.push_back (std::make_unique<FP>(juce::ParameterID{"mix",1},  "Mix",
                  juce::NormalisableRange<float>(0.0f,100.0f,0.1f), 100.0f));
 
-    p.push_back (std::make_unique<BP>(juce::ParameterID{"link",1},   "Link",   false));
-    p.push_back (std::make_unique<BP>(juce::ParameterID{"mute",1},   "Mute",   false));
-    p.push_back (std::make_unique<BP>(juce::ParameterID{"dim",1},    "Dim",    false));
-    p.push_back (std::make_unique<BP>(juce::ParameterID{"mono",1},   "Mono",   false));
-    p.push_back (std::make_unique<BP>(juce::ParameterID{"bypass",1}, "Bypass", false));
+    p.push_back (std::make_unique<FP>(juce::ParameterID{"highAmt",1},    "High",        juce::NormalisableRange<float>(0.0f,100.0f,0.1f), 50.0f));
+    p.push_back (std::make_unique<FP>(juce::ParameterID{"highThresh",1}, "High Thresh", thr, -6.0f));
+    p.push_back (std::make_unique<FP>(juce::ParameterID{"highRatio",1},  "Ratio",
+                 juce::NormalisableRange<float>(1.0f,20.0f,0.1f), 4.0f));
+
+    p.push_back (std::make_unique<FP>(juce::ParameterID{"output",1}, "Output", gain24, 0.0f));
 
     p.push_back (std::make_unique<CP>(juce::ParameterID{"os",1}, "Oversampling",
                  juce::StringArray{"1x","2x","4x","8x"}, 0));
     p.push_back (std::make_unique<CP>(juce::ParameterID{"response",1}, "Response",
                  juce::StringArray{"Fast","Medium","Slow"}, 1));
-    p.push_back (std::make_unique<CP>(juce::ParameterID{"mode",1}, "Output Mode",
+    p.push_back (std::make_unique<CP>(juce::ParameterID{"mode",1}, "Stereo Mode",
                  juce::StringArray{"Stereo","Dual Mono","Mid/Side"}, 0));
+
+    p.push_back (std::make_unique<BP>(juce::ParameterID{"bypass",1}, "Bypass", false));
+    p.push_back (std::make_unique<BP>(juce::ParameterID{"mute",1},   "Mute",   false));
+    p.push_back (std::make_unique<BP>(juce::ParameterID{"dim",1},    "Dim",    false));
+    p.push_back (std::make_unique<BP>(juce::ParameterID{"mono",1},   "Mono",   false));
 
     return { p.begin(), p.end() };
 }
@@ -85,12 +102,6 @@ void PiradexMVAudioProcessor::setEngineRate (double effectiveSR)
     engR.prepare (effectiveSR);
 }
 
-// dB do fader -> quantidade 0..1 do efeito (abaixo de -24 dB praticamente off)
-static inline float dbToAmount (float db)
-{
-    return juce::jlimit (0.0f, 1.0f, (db + 24.0f) / 36.0f);
-}
-
 void PiradexMVAudioProcessor::processChannels (float* const* chans, int numCh, int ns, int mode)
 {
     if (numCh < 2)
@@ -115,7 +126,7 @@ void PiradexMVAudioProcessor::processChannels (float* const* chans, int numCh, i
             R[n] = m - s;
         }
     }
-    else if (mode == 0) // Stereo (linkado — mesmo ganho nos dois canais)
+    else if (mode == 0) // Stereo (linkado)
     {
         for (int n = 0; n < ns; ++n)
         {
@@ -124,7 +135,7 @@ void PiradexMVAudioProcessor::processChannels (float* const* chans, int numCh, i
             L[n] *= g; R[n] *= g;
         }
     }
-    else // Dual Mono (independente)
+    else // Dual Mono
     {
         for (int n = 0; n < ns; ++n)
         {
@@ -140,25 +151,41 @@ void PiradexMVAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const int numCh = buffer.getNumChannels();
     const int numSamples = buffer.getNumSamples();
 
-    const bool  bypass = apvts.getRawParameterValue ("bypass")->load() > 0.5f;
-    const float lowDb  = apvts.getRawParameterValue ("low")->load();
-    const float highDb = apvts.getRawParameterValue ("high")->load();
-    const float outDb  = apvts.getRawParameterValue ("output")->load();
-    const float trimDb = apvts.getRawParameterValue ("trim")->load();
-    const float mix    = apvts.getRawParameterValue ("mix")->load() / 100.0f;
-    const bool  mute   = apvts.getRawParameterValue ("mute")->load() > 0.5f;
-    const bool  dim    = apvts.getRawParameterValue ("dim")->load()  > 0.5f;
-    const bool  mono   = apvts.getRawParameterValue ("mono")->load() > 0.5f;
-    const int   osSel  = (int) apvts.getRawParameterValue ("os")->load();
-    const int   resp   = (int) apvts.getRawParameterValue ("response")->load();
-    const int   mode   = (int) apvts.getRawParameterValue ("mode")->load();
+    auto pv = [this] (const char* id) { return apvts.getRawParameterValue (id)->load(); };
+
+    const bool  bypass = pv("bypass") > 0.5f;
+    const float inTrim = pv("inputTrim");
+    const float lowAmt = pv("lowAmt") / 100.0f;
+    const float lowThr = pv("lowThresh");
+    const float lowMax = pv("lowMaxGain");
+    const float trimDb = pv("trim");
+    const float mix    = pv("mix") / 100.0f;
+    const float hiAmt  = pv("highAmt") / 100.0f;
+    const float hiThr  = pv("highThresh");
+    const float hiRat  = pv("highRatio");
+    const float outDb  = pv("output");
+    const bool  mute   = pv("mute") > 0.5f;
+    const bool  dim    = pv("dim")  > 0.5f;
+    const bool  mono   = pv("mono") > 0.5f;
+    const int   osSel  = (int) pv("os");
+    const int   resp   = (int) pv("response");
+    const int   mode   = (int) pv("mode");
+
+    // ganho de entrada (afeta o IN meter e a deteção)
+    buffer.applyGain (juce::Decibels::decibelsToGain (inTrim));
+
+    inPeakL.store (buffer.getMagnitude (0, 0, numSamples));
+    if (numCh > 1) inPeakR.store (buffer.getMagnitude (1, 0, numSamples));
 
     const int factor = (osSel == 1 ? 2 : osSel == 2 ? 4 : osSel == 3 ? 8 : 1);
     if (factor != lastFactor) { setEngineRate (baseSR * factor); lastFactor = factor; }
 
-    const float la = dbToAmount (lowDb), ha = dbToAmount (highDb);
-    engL.setLow (la); engL.setHigh (ha); engL.setResponse (resp);
-    engR.setLow (la); engR.setHigh (ha); engR.setResponse (resp);
+    for (auto* e : { &engL, &engR })
+    {
+        e->setLowThresh (lowThr); e->setLowMaxGain (lowMax); e->setLowAmount (lowAmt);
+        e->setHighThresh (hiThr); e->setHighRatio (hiRat);   e->setHighAmount (hiAmt);
+        e->setResponse (resp);
+    }
 
     if (bypass)
     {
@@ -211,19 +238,10 @@ void PiradexMVAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     if (mute)      buffer.applyGain (0.0f);
     else if (dim)  buffer.applyGain (juce::Decibels::decibelsToGain (-12.0f));
 
-    auto rms = [] (const float* d, int n) {
-        double s=0.0; for (int i=0;i<n;++i) s += (double)d[i]*d[i];
-        return (float) std::sqrt (s / juce::jmax (1,n));
-    };
     outPeakL.store (buffer.getMagnitude (0, 0, numSamples));
-    outRmsL .store (rms (buffer.getReadPointer (0), numSamples));
-    if (numCh > 1)
-    {
-        outPeakR.store (buffer.getMagnitude (1, 0, numSamples));
-        outRmsR .store (rms (buffer.getReadPointer (1), numSamples));
-    }
-    grLow .store (engL.grLow);
-    grHigh.store (engL.grHigh);
+    if (numCh > 1) outPeakR.store (buffer.getMagnitude (1, 0, numSamples));
+    grLowVal .store (engL.grLow);
+    grHighVal.store (engL.grHigh);
 }
 
 //==============================================================================
