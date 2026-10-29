@@ -8,6 +8,10 @@ namespace fmt
     static juce::String gain (double v) { return "+" + juce::String (v,1) + " dB"; }
     static juce::String ratio(double v) { return juce::String (v,1) + ":1"; }
     static juce::String pct  (double v) { return juce::String ((int) v) + " %"; }
+    static juce::String hz   (double v) { return v < 1.0 ? juce::String ("off") : juce::String ((int) v) + " Hz"; }
+    static juce::String ms   (double v) { return juce::String (v,1) + " ms"; }
+    static juce::String msI  (double v) { return juce::String ((int) v) + " ms"; }
+    static juce::String dbtp (double v) { return juce::String (v,1) + " dBTP"; }
 }
 
 //==============================================================================
@@ -15,6 +19,7 @@ static std::vector<std::pair<juce::String, std::map<juce::String,float>>> makePr
 {
     using M = std::map<juce::String,float>;
     std::vector<std::pair<juce::String, M>> v;
+    v.push_back ({ "PRIME Mastering", M{{"inputTrim",0},{"lowAmt",62},{"lowThresh",-34},{"lowMaxGain",8}, {"trim",0},{"mix",100},{"highAmt",75},{"highThresh",-3},{"highRatio",6},{"output",0},{"os",5},{"response",0},{"mode",0}} });
     v.push_back ({ "Vocal Lift",      M{{"inputTrim",0},{"lowAmt",70},{"lowThresh",-28},{"lowMaxGain",12},{"trim",0},{"mix",100},{"highAmt",60},{"highThresh",-6},{"highRatio",4},{"output",-1},{"os",1},{"response",1},{"mode",0}} });
     v.push_back ({ "Vocal Smooth",    M{{"inputTrim",0},{"lowAmt",55},{"lowThresh",-30},{"lowMaxGain",10},{"trim",0},{"mix",100},{"highAmt",45},{"highThresh",-8},{"highRatio",3},{"output",-1},{"os",0},{"response",1},{"mode",0}} });
     v.push_back ({ "Vocal Presence",  M{{"inputTrim",0},{"lowAmt",80},{"lowThresh",-26},{"lowMaxGain",14},{"trim",0},{"mix",100},{"highAmt",55},{"highThresh",-5},{"highRatio",5},{"output",-1},{"os",1},{"response",0},{"mode",0}} });
@@ -32,8 +37,8 @@ static std::vector<std::pair<juce::String, std::map<juce::String,float>>> makePr
 static auto presetTable = makePresets();
 
 //==============================================================================
-PiradexMVAudioProcessorEditor::PiradexMVAudioProcessorEditor (PiradexMVAudioProcessor& p)
-    : juce::AudioProcessorEditor (&p), proc (p)
+LevelXUI::LevelXUI (PiradexMVAudioProcessor& p)
+    : proc (p)
 {
     th = proc.apvts.state.getProperty ("uiDark", true) ? Theme::darkTheme() : Theme::lightTheme();
 
@@ -45,7 +50,8 @@ PiradexMVAudioProcessorEditor::PiradexMVAudioProcessorEditor (PiradexMVAudioProc
                                juce::MathConstants<float>::pi * 2.75f, true);
         addAndMakeVisible (s);
     };
-    for (auto* k : { &inputTrimK,&lowThreshK,&lowMaxGainK,&trimK,&mixK,&highThreshK,&highRatioK,&outputK })
+    for (auto* k : { &inputTrimK,&lowThreshK,&lowMaxGainK,&trimK,&mixK,&highThreshK,&highRatioK,&outputK,
+                     &scHPK,&kneeK,&attackK,&releaseK,&ceilingK,&lookaheadK })
         rotary (*k);
 
     auto fader = [this] (juce::Slider& s)
@@ -62,19 +68,35 @@ PiradexMVAudioProcessorEditor::PiradexMVAudioProcessorEditor (PiradexMVAudioProc
     modeSeg.setItems ({ "STEREO","DUAL MONO","MID-SIDE" });
 
     for (auto* b : { &bypassBtn,&muteBtn,&dimBtn,&monoBtn,&midBtn,&sideBtn }) addAndMakeVisible (*b);
-    for (auto* b : { &prevBtn,&nextBtn,&undoBtn,&redoBtn,&aBtn,&bBtn,&gearBtn }) addAndMakeVisible (*b);
+    for (auto* b : { &limiterBtn,&ditherBtn,&autoGainBtn,&deltaBtn }) addAndMakeVisible (*b);
+    for (auto* b : { &prevBtn,&nextBtn,&undoBtn,&redoBtn,&aBtn,&bBtn,&cBtn,&dBtn,&gearBtn }) addAndMakeVisible (*b);
     addAndMakeVisible (inMeter); addAndMakeVisible (outMeter); addAndMakeVisible (analyser);
 
-    // attachments
+    // attachments (+ duplo-clique repõe o default)
     auto& v = proc.apvts;
-    auto SAmk = [&] (const char* id, juce::Slider& s){ sAtt.push_back (std::make_unique<SA>(v,id,s)); };
+    auto SAmk = [&] (const char* id, juce::Slider& s){
+        sAtt.push_back (std::make_unique<SA>(v,id,s));
+        if (auto* p = v.getParameter (id)) s.setDoubleClickReturnValue (true, p->convertFrom0to1 (p->getDefaultValue()));
+    };
     SAmk ("inputTrim", inputTrimK); SAmk ("lowThresh", lowThreshK); SAmk ("lowMaxGain", lowMaxGainK);
     SAmk ("trim", trimK); SAmk ("mix", mixK); SAmk ("highThresh", highThreshK);
     SAmk ("highRatio", highRatioK); SAmk ("output", outputK);
     SAmk ("lowAmt", lowFader); SAmk ("highAmt", highFader);
+    SAmk ("scHP", scHPK); SAmk ("knee", kneeK); SAmk ("attack", attackK);
+    SAmk ("release", releaseK); SAmk ("ceiling", ceilingK); SAmk ("lookahead", lookaheadK);
     auto BAmk = [&] (const char* id, juce::Button& b){ bAtt.push_back (std::make_unique<BA>(v,id,b)); };
     BAmk ("bypass", bypassBtn); BAmk ("mute", muteBtn); BAmk ("dim", dimBtn); BAmk ("mono", monoBtn);
     BAmk ("monMid", midBtn); BAmk ("monSide", sideBtn);
+    BAmk ("limiter", limiterBtn); BAmk ("dither", ditherBtn);
+    BAmk ("autoGain", autoGainBtn); BAmk ("delta", deltaBtn);
+
+    // MID / SIDE / MONO mutuamente exclusivos
+    auto excl = [this] (juce::Button* keep) {
+        for (auto* b : { &monoBtn, &midBtn, &sideBtn }) if (b != keep && b->getToggleState()) b->setToggleState (false, juce::sendNotification);
+    };
+    monoBtn.onClick = [this,excl]{ if (monoBtn.getToggleState()) excl (&monoBtn); };
+    midBtn .onClick = [this,excl]{ if (midBtn .getToggleState()) excl (&midBtn ); };
+    sideBtn.onClick = [this,excl]{ if (sideBtn.getToggleState()) excl (&sideBtn); };
 
     bindChoice (respSeg, "response");
     bindChoice (osSeg,   "os");
@@ -90,6 +112,12 @@ PiradexMVAudioProcessorEditor::PiradexMVAudioProcessorEditor (PiradexMVAudioProc
         { &highThreshK,"THRESHOLD",  fmt::db,   "-60", "0" },
         { &highRatioK, "RATIO",      fmt::ratio,"1", "20"  },
         { &outputK,    "OUTPUT",     fmt::dbpm, "", ""   },
+        { &scHPK,      "SC HP",      fmt::hz,   "", ""   },
+        { &kneeK,      "KNEE",       fmt::db,   "", ""   },
+        { &attackK,    "ATTACK",     fmt::ms,   "", ""   },
+        { &releaseK,   "RELEASE",    fmt::msI,  "", ""   },
+        { &ceilingK,   "CEILING",    fmt::dbtp, "", ""   },
+        { &lookaheadK, "LOOKAHEAD",  fmt::ms,   "", ""   },
     };
 
     // presets
@@ -98,8 +126,10 @@ PiradexMVAudioProcessorEditor::PiradexMVAudioProcessorEditor (PiradexMVAudioProc
     // header buttons
     prevBtn.onClick = [this]{ applyPreset ((currentPreset - 1 + (int)presetTable.size()) % (int)presetTable.size()); };
     nextBtn.onClick = [this]{ applyPreset ((currentPreset + 1) % (int)presetTable.size()); };
-    aBtn.onClick = [this]{ toggleAB (false); };
-    bBtn.onClick = [this]{ toggleAB (true); };
+    aBtn.onClick = [this]{ toggleAB (0); };
+    bBtn.onClick = [this]{ toggleAB (1); };
+    cBtn.onClick = [this]{ toggleAB (2); };
+    dBtn.onClick = [this]{ toggleAB (3); };
     gearBtn.onClick = [this]
     {
         th = th.dark ? Theme::lightTheme() : Theme::darkTheme();
@@ -109,41 +139,66 @@ PiradexMVAudioProcessorEditor::PiradexMVAudioProcessorEditor (PiradexMVAudioProc
     };
 
     aBtn.active = true;
-    slotA = captureState();
-    slotB = slotA;
+    { auto s = captureState(); for (auto& sl : abSlots) sl = s; }
 
     applyThemeToAll();
-    setSize (1260, 800);
+    setSize (1260, 904);
     startTimerHz (30);
 }
 
-PiradexMVAudioProcessorEditor::~PiradexMVAudioProcessorEditor() { setLookAndFeel (nullptr); }
+LevelXUI::~LevelXUI() { setLookAndFeel (nullptr); }
 
 //==============================================================================
-void PiradexMVAudioProcessorEditor::applyThemeToAll()
+PiradexMVAudioProcessorEditor::PiradexMVAudioProcessorEditor (PiradexMVAudioProcessor& p)
+    : juce::AudioProcessorEditor (&p), proc (p), ui (p)
+{
+    addAndMakeVisible (ui);
+    setResizable (true, true);
+    setResizeLimits ((int) (baseW*0.7), (int) (baseH*0.7), (int) (baseW*1.7), (int) (baseH*1.7));
+    if (auto* c = getConstrainer()) c->setFixedAspectRatio ((double) baseW / (double) baseH);
+    int w = juce::jlimit ((int)(baseW*0.7), (int)(baseW*1.7),
+                          (int) proc.apvts.state.getProperty ("uiW", baseW));
+    setSize (w, juce::roundToInt (w * (double) baseH / baseW));
+}
+
+void PiradexMVAudioProcessorEditor::resized()
+{
+    const float s = (float) getWidth() / (float) baseW;
+    ui.setTransform (juce::AffineTransform::scale (s));
+    ui.setBounds (0, 0, baseW, baseH);
+    proc.apvts.state.setProperty ("uiW", getWidth(), nullptr);
+}
+
+//==============================================================================
+void LevelXUI::applyThemeToAll()
 {
     lnf.setTheme (th);
     setLookAndFeel (&lnf);
 
     for (auto* c : std::initializer_list<Themed*>{ &respSeg,&osSeg,&modeSeg,
             &bypassBtn,&muteBtn,&dimBtn,&monoBtn,&midBtn,&sideBtn,
-            &prevBtn,&nextBtn,&undoBtn,&redoBtn,&aBtn,&bBtn,&gearBtn,&inMeter,&outMeter,&analyser })
+            &limiterBtn,&ditherBtn,&autoGainBtn,&deltaBtn,
+            &prevBtn,&nextBtn,&undoBtn,&redoBtn,&aBtn,&bBtn,&cBtn,&dBtn,&gearBtn,&inMeter,&outMeter,&analyser })
         c->th = &th;
 
     auto setAccent = [] (juce::Slider& s, juce::Colour col){ s.getProperties().set ("accent", (int) col.getARGB()); };
     setAccent (lowFader, th.blue);   setAccent (highFader, th.amber);
     setAccent (lowThreshK, th.blue); setAccent (lowMaxGainK, th.blue);
     setAccent (highThreshK, th.amber); setAccent (highRatioK, th.amber);
-    setAccent (inputTrimK, th.blue); setAccent (trimK, th.blue);
-    setAccent (mixK, th.blue);       setAccent (outputK, th.blue);
+    const juce::Colour centreWhite { 0xffe9eef4 };               // knobs do meio (TRIM/MIX)
+    setAccent (inputTrimK, th.blue); setAccent (trimK, centreWhite);
+    setAccent (mixK, centreWhite);   setAccent (outputK, th.blue);
+    setAccent (scHPK, th.blue); setAccent (kneeK, th.blue); setAccent (attackK, th.blue);
+    setAccent (releaseK, th.blue); setAccent (ceilingK, th.amber); setAccent (lookaheadK, th.amber);
 
-    for (auto* s : { &inputTrimK,&lowThreshK,&lowMaxGainK,&trimK,&mixK,&highThreshK,&highRatioK,&outputK,&lowFader,&highFader })
+    for (auto* s : { &inputTrimK,&lowThreshK,&lowMaxGainK,&trimK,&mixK,&highThreshK,&highRatioK,&outputK,&lowFader,&highFader,
+                     &scHPK,&kneeK,&attackK,&releaseK,&ceilingK,&lookaheadK })
         s->setLookAndFeel (&lnf);
 
     repaint();
 }
 
-void PiradexMVAudioProcessorEditor::bindChoice (SegBar& seg, const juce::String& id)
+void LevelXUI::bindChoice (SegBar& seg, const juce::String& id)
 {
     if (auto* pc = dynamic_cast<juce::AudioParameterChoice*> (proc.apvts.getParameter (id)))
     {
@@ -158,7 +213,7 @@ void PiradexMVAudioProcessorEditor::bindChoice (SegBar& seg, const juce::String&
 }
 
 //==============================================================================
-std::map<juce::String,float> PiradexMVAudioProcessorEditor::captureState()
+std::map<juce::String,float> LevelXUI::captureState()
 {
     std::map<juce::String,float> m;
     for (auto& id : PiradexMVAudioProcessor::paramIDs())
@@ -166,7 +221,7 @@ std::map<juce::String,float> PiradexMVAudioProcessorEditor::captureState()
     return m;
 }
 
-void PiradexMVAudioProcessorEditor::loadState (const std::map<juce::String,float>& m)
+void LevelXUI::loadState (const std::map<juce::String,float>& m)
 {
     for (auto& kv : m)
         if (auto* p = proc.apvts.getParameter (kv.first))
@@ -176,7 +231,7 @@ void PiradexMVAudioProcessorEditor::loadState (const std::map<juce::String,float
     modeSeg.setIndex ((int) proc.apvts.getRawParameterValue ("mode")->load());
 }
 
-void PiradexMVAudioProcessorEditor::applyPreset (int idx)
+void LevelXUI::applyPreset (int idx)
 {
     idx = juce::jlimit (0, (int) presetTable.size()-1, idx);
     currentPreset = idx;
@@ -184,38 +239,98 @@ void PiradexMVAudioProcessorEditor::applyPreset (int idx)
     repaint();
 }
 
-void PiradexMVAudioProcessorEditor::toggleAB (bool toB)
+void LevelXUI::toggleAB (int slot)
 {
-    if (toB == onB) return;
-    if (onB) slotB = captureState(); else slotA = captureState();   // guarda o atual
-    onB = toB;
-    loadState (onB ? slotB : slotA);
-    aBtn.active = !onB; bBtn.active = onB;
+    slot = juce::jlimit (0, 3, slot);
+    if (slot == abIndex) return;
+    abSlots[abIndex] = captureState();     // guarda o atual
+    abIndex = slot;
+    loadState (abSlots[abIndex]);
+    aBtn.active = (abIndex==0); bBtn.active = (abIndex==1);
+    cBtn.active = (abIndex==2); dBtn.active = (abIndex==3);
     repaint();
 }
 
-void PiradexMVAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
+juce::File LevelXUI::userPresetDir() const
 {
+    auto d = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                .getChildFile ("Piradex").getChildFile ("LEVEL-X").getChildFile ("Presets");
+    d.createDirectory();
+    return d;
+}
+
+void LevelXUI::saveStateToFile (const juce::File& f)
+{
+    if (auto xml = proc.apvts.copyState().createXml())
+        xml->writeTo (f.withFileExtension ("levelx"));
+}
+
+void LevelXUI::loadStateFromFile (const juce::File& f)
+{
+    if (auto xml = juce::XmlDocument::parse (f))
+    {
+        proc.apvts.replaceState (juce::ValueTree::fromXml (*xml));
+        respSeg.setIndex ((int) proc.apvts.getRawParameterValue ("response")->load());
+        osSeg.setIndex   ((int) proc.apvts.getRawParameterValue ("os")->load());
+        modeSeg.setIndex ((int) proc.apvts.getRawParameterValue ("mode")->load());
+        repaint();
+    }
+}
+
+void LevelXUI::mouseDown (const juce::MouseEvent& e)
+{
+    if (outCol.contains (e.getPosition())) { proc.clipFlag.store (false); repaint(); return; }
     if (! presetNameArea.contains (e.getPosition())) return;
     juce::PopupMenu m;
     m.setLookAndFeel (&lnf);
     for (int i = 0; i < presetNames.size(); ++i)
         m.addItem (i + 1, presetNames[i], true, i == currentPreset);
+
+    auto files = userPresetDir().findChildFiles (juce::File::findFiles, false, "*.levelx");
+    if (! files.isEmpty())
+    {
+        juce::PopupMenu um;
+        for (int i = 0; i < files.size(); ++i) um.addItem (1000 + i, files[i].getFileNameWithoutExtension());
+        m.addSeparator(); m.addSubMenu ("User Presets", um);
+    }
+    m.addSeparator();
+    m.addItem (9001, "Save preset...");
+    m.addItem (9002, "Load preset...");
+
     m.showMenuAsync (juce::PopupMenu::Options()
                         .withTargetScreenArea (localAreaToGlobal (presetNameArea)),
-                     [this] (int r) { if (r > 0) applyPreset (r - 1); });
+        [this, files] (int r)
+        {
+            if (r <= 0) return;
+            if (r >= 1 && r <= presetNames.size()) applyPreset (r - 1);
+            else if (r >= 1000 && r < 1000 + files.size()) loadStateFromFile (files[r - 1000]);
+            else if (r == 9001)
+            {
+                fileChooser = std::make_unique<juce::FileChooser> ("Guardar preset LEVEL-X", userPresetDir(), "*.levelx");
+                fileChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+                    [this] (const juce::FileChooser& fc){ auto f=fc.getResult(); if (f != juce::File()) saveStateToFile (f); });
+            }
+            else if (r == 9002)
+            {
+                fileChooser = std::make_unique<juce::FileChooser> ("Carregar preset LEVEL-X", userPresetDir(), "*.levelx");
+                fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                    [this] (const juce::FileChooser& fc){ auto f=fc.getResult(); if (f.existsAsFile()) loadStateFromFile (f); });
+            }
+        });
 }
 
 //==============================================================================
-void PiradexMVAudioProcessorEditor::timerCallback()
+void LevelXUI::timerCallback()
 {
     auto norm = [] (float peak){ float db = juce::Decibels::gainToDecibels (peak + 1.0e-6f);
-                                 return juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 60.0f); };
-    auto sm = [] (float& s, float t){ s += (t - s) * (t > s ? 0.5f : 0.12f); };
+                                 return juce::jlimit (0.0f, 1.0f, (db + 72.0f) / 78.0f); }; // -72..+6
+    auto sm = [] (float& s, float t){ s += (t - s) * (t > s ? 0.6f : 0.22f); };            // mais viva
     sm (mInL, norm (proc.inPeakL.load()));  sm (mInR, norm (proc.inPeakR.load()));
     sm (mOutL,norm (proc.outPeakL.load())); sm (mOutR,norm (proc.outPeakR.load()));
     sm (mInM, norm (proc.inPeakM.load()));  sm (mInS, norm (proc.inPeakS.load()));
     sm (mOutM,norm (proc.outPeakM.load())); sm (mOutS,norm (proc.outPeakS.load()));
+
+    analyser.update();
 
     // meters mostram L/R ou M/S conforme o Output Mode
     const int mode = (int) proc.apvts.getRawParameterValue ("mode")->load();
@@ -235,7 +350,7 @@ void PiradexMVAudioProcessorEditor::timerCallback()
 }
 
 //==============================================================================
-void PiradexMVAudioProcessorEditor::drawBeatfreakLogo (juce::Graphics& g, juce::Rectangle<float> r)
+void LevelXUI::drawBeatfreakLogo (juce::Graphics& g, juce::Rectangle<float> r)
 {
     // "by Piradex" com um pequeno losango azul, alinhado à direita
     juce::Font fby (juce::FontOptions (12.0f));
@@ -270,7 +385,7 @@ void PiradexMVAudioProcessorEditor::drawBeatfreakLogo (juce::Graphics& g, juce::
     g.drawText (nm, x + wby, r.getY(), wnm + 4.0f, r.getHeight(), juce::Justification::centredLeft);
 }
 
-void PiradexMVAudioProcessorEditor::drawHeader (juce::Graphics& g, juce::Rectangle<int> area)
+void LevelXUI::drawHeader (juce::Graphics& g, juce::Rectangle<int> area)
 {
     auto a = area.toFloat();
     juce::ColourGradient hg (th.header.brighter (0.04f), a.getX(), a.getY(),
@@ -313,7 +428,7 @@ void PiradexMVAudioProcessorEditor::drawHeader (juce::Graphics& g, juce::Rectang
 }
 
 //==============================================================================
-void PiradexMVAudioProcessorEditor::drawPanel (juce::Graphics& g, juce::Rectangle<int> rr,
+void LevelXUI::drawPanel (juce::Graphics& g, juce::Rectangle<int> rr,
                                                const juce::String& title, const juce::String& subtitle,
                                                juce::Colour accent)
 {
@@ -333,7 +448,7 @@ void PiradexMVAudioProcessorEditor::drawPanel (juce::Graphics& g, juce::Rectangl
     g.drawText (subtitle, head.withTrimmedTop (18), juce::Justification::centredTop);
 }
 
-void PiradexMVAudioProcessorEditor::drawGroup (juce::Graphics& g, juce::Rectangle<int> rr, const juce::String& title)
+void LevelXUI::drawGroup (juce::Graphics& g, juce::Rectangle<int> rr, const juce::String& title)
 {
     auto a = rr.toFloat();
     g.setColour (th.panel);  g.fillRoundedRectangle (a, 7.0f);
@@ -343,7 +458,7 @@ void PiradexMVAudioProcessorEditor::drawGroup (juce::Graphics& g, juce::Rectangl
     g.drawText (title, rr.removeFromTop (17), juce::Justification::centred);
 }
 
-void PiradexMVAudioProcessorEditor::drawKnobLabels (juce::Graphics& g)
+void LevelXUI::drawKnobLabels (juce::Graphics& g)
 {
     for (auto& k : knobs)
     {
@@ -375,7 +490,7 @@ void PiradexMVAudioProcessorEditor::drawKnobLabels (juce::Graphics& g)
 }
 
 //==============================================================================
-void PiradexMVAudioProcessorEditor::paint (juce::Graphics& g)
+void LevelXUI::paint (juce::Graphics& g)
 {
     g.fillAll (th.bg);
     // brilho radial subtil no topo (Obsidian)
@@ -416,6 +531,15 @@ void PiradexMVAudioProcessorEditor::paint (juce::Graphics& g)
     };
     lr (inCol); lr (outCol);
 
+    // indicador de clip (OUT) — clicar na coluna OUT reinicia
+    if (proc.clipFlag.load())
+    {
+        g.setColour (th.meterHi);
+        g.fillRoundedRectangle ((float) outCol.getCentreX()-20, (float) outCol.getY()+2, 40.0f, 13.0f, 3.0f);
+        g.setColour (juce::Colours::white); g.setFont (juce::Font (juce::FontOptions (8.5f, juce::Font::bold)));
+        g.drawText ("CLIP", outCol.getX(), outCol.getY()+2, outCol.getWidth(), 13, juce::Justification::centred);
+    }
+
     drawPanel (g, lowPanel,  "LOW",  "UPWARD COMPRESSION", th.blue);
     drawPanel (g, highPanel, "HIGH", "DOWNWARD LIMITING",  th.amber);
 
@@ -436,6 +560,7 @@ void PiradexMVAudioProcessorEditor::paint (juce::Graphics& g)
         }
     }
 
+    drawGroup (g, advRect,   "ADVANCED");
     drawGroup (g, respGroup, "RESPONSE");
     drawGroup (g, osGroup,   "OVERSAMPLING");
     drawGroup (g, modeGroup, "STEREO MODE");
@@ -466,12 +591,13 @@ void PiradexMVAudioProcessorEditor::paint (juce::Graphics& g)
 }
 
 //==============================================================================
-void PiradexMVAudioProcessorEditor::resized()
+void LevelXUI::resized()
 {
     auto area = getLocalBounds();
     headerRect = area.removeFromTop (72);
     area.removeFromBottom (16);                 // footer
     auto bar = area.removeFromBottom (70);      // bottom bar
+    auto adv = area.removeFromBottom (104);     // secção avançada
     area.reduce (14, 10);
 
     // ---- header controls ----
@@ -481,8 +607,10 @@ void PiradexMVAudioProcessorEditor::resized()
         band.removeFromRight (10);              // margem direita
         band.removeFromRight (6);
         gearBtn.setBounds (band.removeFromRight (30)); band.removeFromRight (8);
-        bBtn.setBounds (band.removeFromRight (28));
-        aBtn.setBounds (band.removeFromRight (28)); band.removeFromRight (10);
+        dBtn.setBounds (band.removeFromRight (26));
+        cBtn.setBounds (band.removeFromRight (26));
+        bBtn.setBounds (band.removeFromRight (26));
+        aBtn.setBounds (band.removeFromRight (26)); band.removeFromRight (10);
         redoBtn.setBounds (band.removeFromRight (24));
         undoBtn.setBounds (band.removeFromRight (24)); band.removeFromRight (12);
         prevBtn.setBounds (band.removeFromLeft (26));
@@ -556,6 +684,30 @@ void PiradexMVAudioProcessorEditor::resized()
         auto c = centerCol; c.removeFromTop (6);
         placeKnob (trimK, c.removeFromTop (c.getHeight()/2));
         placeKnob (mixK,  c);
+    }
+
+    // ---- secção avançada ----
+    adv.reduce (14, 6);
+    advRect = adv;
+    {
+        auto a2 = adv.reduced (8, 0); a2.removeFromTop (16);   // espaço p/ título
+        auto togArea = a2.removeFromRight (330);
+        // 6 knobs
+        juce::Slider* ak[] = { &scHPK,&kneeK,&attackK,&releaseK,&ceilingK,&lookaheadK };
+        int kw = a2.getWidth() / 6;
+        for (int i=0;i<6;++i)
+        {
+            auto cell = a2.removeFromLeft (kw);
+            int d = juce::jlimit (36, 52, juce::jmin (cell.getWidth(), cell.getHeight()-36));
+            ak[i]->setBounds (juce::Rectangle<int>(0,0,d,d).withCentre ({ cell.getCentreX(), cell.getY()+d/2+2 }));
+        }
+        // 4 toggles (2x2)
+        togArea.reduce (8, 4);
+        int tw = (togArea.getWidth()-8)/2, thh = (togArea.getHeight()-8)/2;
+        limiterBtn .setBounds (togArea.getX(),          togArea.getY(),           tw, thh);
+        ditherBtn  .setBounds (togArea.getX()+tw+8,     togArea.getY(),           tw, thh);
+        autoGainBtn.setBounds (togArea.getX(),          togArea.getY()+thh+8,     tw, thh);
+        deltaBtn   .setBounds (togArea.getX()+tw+8,     togArea.getY()+thh+8,     tw, thh);
     }
 
     // ---- bottom bar ----

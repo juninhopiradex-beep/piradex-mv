@@ -132,11 +132,32 @@ public:
 };
 
 //==============================================================================
+// Botão-etiqueta (toggle) para a secção avançada
+class MiniToggle : public juce::Button, public Themed
+{
+public:
+    explicit MiniToggle (const juce::String& t) : juce::Button (t) { setClickingTogglesState (true); }
+    void paintButton (juce::Graphics& g, bool over, bool) override
+    {
+        if (th == nullptr) return;
+        bool on = getToggleState();
+        auto b = getLocalBounds().toFloat().reduced (1.5f);
+        g.setColour (on ? th->blue : th->slot);
+        g.fillRoundedRectangle (b, 5.0f);
+        g.setColour (on ? th->blue.brighter() : th->stroke);
+        g.drawRoundedRectangle (b, 5.0f, 1.0f);
+        g.setColour (on ? juce::Colours::white : th->textDim.brighter (over ? 0.25f : 0.0f));
+        g.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)));
+        g.drawText (getButtonText(), getLocalBounds(), juce::Justification::centred);
+    }
+};
+
+//==============================================================================
 // Botão do cabeçalho (setas, undo/redo, A, B, engrenagem)
 class IconButton : public juce::Button, public Themed
 {
 public:
-    enum Kind { Prev, Next, Undo, Redo, A, B, Gear };
+    enum Kind { Prev, Next, Undo, Redo, A, B, C, D, Gear };
     IconButton (Kind k) : juce::Button ("hdr"), kind (k) {}
     bool active = false;
 
@@ -144,7 +165,7 @@ public:
     {
         if (th == nullptr) return;
         auto b = getLocalBounds().toFloat().reduced (2.0f);
-        bool box = (kind==A || kind==B || kind==Gear);
+        bool box = (kind==A || kind==B || kind==C || kind==D || kind==Gear);
         if (box)
         {
             g.setColour (active ? th->blue : th->slot);
@@ -166,8 +187,12 @@ public:
         };
         if      (kind==Prev) arrow (false);
         else if (kind==Next) arrow (true);
-        else if (kind==A) { g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold))); g.drawText ("A", b, juce::Justification::centred); }
-        else if (kind==B) { g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold))); g.drawText ("B", b, juce::Justification::centred); }
+        else if (kind==A || kind==B || kind==C || kind==D)
+        {
+            g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
+            const char* L = kind==A?"A":kind==B?"B":kind==C?"C":"D";
+            g.drawText (L, b, juce::Justification::centred);
+        }
         else if (kind==Undo || kind==Redo)
         {
             bool rd = (kind==Redo); float d = rd?1.0f:-1.0f;
@@ -204,48 +229,44 @@ public:
 
         g.setFont (juce::Font (juce::FontOptions (7.5f)));
         g.setColour (th->sub);
-        const int marks[] = { 0, -6, -12, -24, -36, -48, -60 };
+        const int marks[] = { 6, 0, -6, -12, -24, -36, -48, -60 };
         for (int m : marks)
         {
-            float t = (float) (m + 60) / 60.0f;         // 0..1 bottom..top
+            float t = (float) (m + 72) / 78.0f;         // escala -72..+6 (mais headroom)
             float y = b.getBottom() - t * b.getHeight();
             g.drawText (juce::String (m), scale.getX(), (int) y - 5, (int) scaleW - 3, 10,
                         juce::Justification::centredRight);
         }
 
         auto bars = b.reduced (2.0f, 0.0f);
-        float gap = 4.0f;
+        float gap = 5.0f;
         float bw = (bars.getWidth() - gap) * 0.5f;
-        drawBar (g, bars.removeFromLeft (bw), lvlL);
+        drawBar (g, bars.removeFromLeft (bw), lvlL, th->blue);     // L = azul degradé
         bars.removeFromLeft (gap);
-        drawBar (g, bars, lvlR);
+        drawBar (g, bars, lvlR, th->amber);                        // R = laranja degradé
     }
 private:
-    void drawBar (juce::Graphics& g, juce::Rectangle<float> r, float level)
+    void drawBar (juce::Graphics& g, juce::Rectangle<float> r, float level, juce::Colour accent)
     {
-        g.setColour (th->slot);
-        g.fillRoundedRectangle (r, 2.0f);
-        g.setColour (th->stroke);
-        g.drawRoundedRectangle (r, 2.0f, 0.8f);
+        g.setColour (th->slot);   g.fillRoundedRectangle (r, 2.5f);
+        g.setColour (th->stroke); g.drawRoundedRectangle (r, 2.5f, 0.8f);
 
-        // LEDs segmentados (verde -> amarelo -> laranja -> vermelho)
-        const int segs = 24;
-        const float gap = 1.4f;
-        auto inner = r.reduced (1.6f);
-        float segH = (inner.getHeight() - (segs-1)*gap) / segs;
-        int lit = juce::roundToInt (juce::jlimit (0.0f, 1.0f, level) * segs);
-        for (int i = 0; i < segs; ++i)
+        float h = r.getHeight() * juce::jlimit (0.0f, 1.0f, level);
+        if (h > 1.0f)
         {
-            float t = (float) i / (float) (segs - 1);          // 0 base .. 1 topo
-            juce::Colour col = t < 0.6f ? th->meterLo.interpolatedWith (th->meterMid, t/0.6f)
-                             : t < 0.85f ? th->meterMid.interpolatedWith (th->meterHi, (t-0.6f)/0.25f)
-                                         : th->meterHi;
-            float y = inner.getBottom() - (i+1)*segH - i*gap;
-            juce::Rectangle<float> seg (inner.getX(), y, inner.getWidth(), segH);
-            if (i < lit) { g.setColour (col); g.fillRect (seg);
-                           g.setColour (juce::Colours::white.withAlpha (0.12f)); g.fillRect (seg.removeFromTop (segH*0.4f)); }
-            else         { g.setColour (th->sub.withAlpha (th->dark ? 0.22f : 0.32f)); g.fillRect (seg); }
+            juce::Rectangle<float> fill (r.getX(), r.getBottom()-h, r.getWidth(), h);
+            juce::ColourGradient grad (accent.brighter (0.45f), fill.getCentreX(), r.getY(),
+                                       accent.darker (0.55f),   fill.getCentreX(), r.getBottom(), false);
+            grad.addColour (0.5, accent);
+            g.setGradientFill (grad);
+            g.fillRoundedRectangle (fill.reduced (1.0f, 0.0f), 2.0f);
+            // glow no topo
+            g.setColour (accent.brighter (0.6f).withAlpha (0.5f));
+            g.fillRoundedRectangle (fill.getX()+1, fill.getY(), fill.getWidth()-2, juce::jmin (3.0f, h), 1.5f);
         }
+        // marcas de nível subtis
+        g.setColour (th->bg.withAlpha (0.45f));
+        for (int i=1;i<12;++i){ float y=r.getBottom()-r.getHeight()*(i/12.0f); g.drawLine (r.getX(),y,r.getRight(),y,0.6f); }
     }
     float lvlL = 0.0f, lvlR = 0.0f;
 };
@@ -257,11 +278,23 @@ class Analyser : public juce::Component, public Themed
 public:
     explicit Analyser (PiradexMVAudioProcessor& p) : proc (p) {}
     int tab = 0;
-    const juce::StringArray tabs { "SPECTRUM", "CURVE", "METERS" };
+    const juce::StringArray tabs { "SPECTRUM", "CURVE", "GR", "LOUDNESS" };
+
+    // histórico de gain reduction/boost (atualizado pelo timer do editor)
+    void update()
+    {
+        grLowHist[(size_t)grPos]  = proc.grLowVal.load();
+        grHighHist[(size_t)grPos] = proc.grHighVal.load();
+        grPos = (grPos + 1) % histN;
+    }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        if (e.position.y > 34.0f) return;
+        if (e.position.y > 34.0f)
+        {
+            if (tab == 3) { proc.resetLoudness(); repaint(); }   // clicar reinicia LUFS
+            return;
+        }
         float x = 18.0f;
         for (int i = 0; i < tabs.size(); ++i)
         {
@@ -296,7 +329,8 @@ public:
         auto area = b.reduced (16.0f).withTrimmedTop (28.0f);
         if      (tab == 0) drawSpectrum (g, area);
         else if (tab == 1) drawCurve (g, area);
-        else               drawMeters (g, area);
+        else if (tab == 2) drawGR (g, area);
+        else               drawLoudness (g, area);
     }
 
 private:
@@ -411,16 +445,71 @@ private:
         }
     }
 
+    void drawGR (juce::Graphics& g, juce::Rectangle<float> a)
+    {
+        float mid = a.getCentreY();
+        g.setColour (th->stroke); g.drawHorizontalLine ((int) mid, a.getX(), a.getRight());
+        float bw = a.getWidth() / (float) histN;
+        for (int i = 0; i < histN; ++i)
+        {
+            int idx = (grPos + i) % histN;
+            float lo = grLowHist[(size_t)idx];     // boost >=0 dB
+            float hi = grHighHist[(size_t)idx];    // cut <=0 dB
+            float x = a.getX() + i*bw;
+            float up = juce::jlimit (0.0f, 1.0f, lo/24.0f) * (a.getHeight()*0.5f);
+            float dn = juce::jlimit (0.0f, 1.0f, -hi/24.0f) * (a.getHeight()*0.5f);
+            g.setColour (th->blue.withAlpha (0.9f));  g.fillRect (x, mid-up, bw+0.5f, up);
+            g.setColour (th->amber.withAlpha (0.9f)); g.fillRect (x, mid, bw+0.5f, dn);
+        }
+        g.setColour (th->blue);  g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+        g.drawText ("BOOST  +" + juce::String (proc.grLowVal.load(),1) + " dB", (int)a.getX()+4, (int)a.getY(), 160, 14, juce::Justification::left);
+        g.setColour (th->amber);
+        g.drawText ("CUT  " + juce::String (proc.grHighVal.load(),1) + " dB", (int)a.getX()+4, (int)a.getBottom()-14, 160, 14, juce::Justification::left);
+    }
+
+    void drawLoudness (juce::Graphics& g, juce::Rectangle<float> a)
+    {
+        auto val = [] (float v){ return v <= -99.0f ? juce::String ("-inf") : juce::String (v, 1); };
+        float colW = a.getWidth()/4.0f;
+        struct LV { juce::String name, unit; float v; };
+        LV cells[] = {
+            { "LUFS-I", "", proc.lufsIval.load() },
+            { "LUFS-S", "", proc.lufsSval.load() },
+            { "LUFS-M", "", proc.lufsMval.load() },
+            { "TRUE PEAK", "dBTP", proc.truePeakDb.load() },
+        };
+        for (int i=0;i<4;++i)
+        {
+            auto r = juce::Rectangle<float> (a.getX()+i*colW, a.getY(), colW, a.getHeight()).reduced (10.0f);
+            g.setColour (th->slot); g.fillRoundedRectangle (r, 6.0f);
+            g.setColour (th->stroke); g.drawRoundedRectangle (r, 6.0f, 1.0f);
+            g.setColour (th->textDim); g.setFont (juce::Font (juce::FontOptions (10.0f, juce::Font::bold)));
+            g.drawText (cells[i].name, r.removeFromTop (20.0f), juce::Justification::centred);
+            bool tpHot = (i==3 && cells[i].v > -1.0f);
+            g.setColour (tpHot ? th->amber : th->text);
+            g.setFont (juce::Font (juce::FontOptions (26.0f, juce::Font::bold)));
+            g.drawText (val (cells[i].v), r.removeFromTop (r.getHeight()-16.0f), juce::Justification::centred);
+            g.setColour (th->sub); g.setFont (juce::Font (juce::FontOptions (8.5f)));
+            g.drawText (cells[i].unit.isEmpty() ? "LUFS" : cells[i].unit, r, juce::Justification::centred);
+        }
+    }
+
+    static constexpr int histN = 220;
+    std::array<float,histN> grLowHist {};
+    std::array<float,histN> grHighHist {};
+    int grPos = 0;
+
     PiradexMVAudioProcessor& proc;
 };
 
 //==============================================================================
-class PiradexMVAudioProcessorEditor : public juce::AudioProcessorEditor,
-                                      private juce::Timer
+// Conteúdo do GUI, desenhado sempre a 1260x800; o editor escala-o (resize).
+class LevelXUI : public juce::Component,
+                 private juce::Timer
 {
 public:
-    explicit PiradexMVAudioProcessorEditor (PiradexMVAudioProcessor&);
-    ~PiradexMVAudioProcessorEditor() override;
+    explicit LevelXUI (PiradexMVAudioProcessor&);
+    ~LevelXUI() override;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -444,7 +533,7 @@ private:
     std::map<juce::String,float> captureState();
     void loadState (const std::map<juce::String,float>&);
     void applyPreset (int idx);
-    void toggleAB (bool toB);
+    void toggleAB (int slot);
 
     PiradexMVAudioProcessor& proc;
     MVLookAndFeel lnf;
@@ -453,13 +542,16 @@ private:
     // controlos
     juce::Slider inputTrimK, lowThreshK, lowMaxGainK, trimK, mixK, highThreshK, highRatioK, outputK;
     juce::Slider lowFader, highFader;
+    juce::Slider scHPK, kneeK, attackK, releaseK, ceilingK, lookaheadK;   // avançado
+    MiniToggle limiterBtn {"LIMITER"}, ditherBtn {"DITHER"}, autoGainBtn {"AUTO GAIN"}, deltaBtn {"DELTA"};
     SegBar respSeg, osSeg, modeSeg;
     IconToggle bypassBtn {"BYPASS", IconToggle::Power}, muteBtn {"MUTE", IconToggle::Speaker},
                dimBtn {"DIM", IconToggle::Half}, monoBtn {"MONO", IconToggle::Rings},
                midBtn {"MID", IconToggle::Mid}, sideBtn {"SIDE", IconToggle::Side};
     IconButton prevBtn {IconButton::Prev}, nextBtn {IconButton::Next},
                undoBtn {IconButton::Undo}, redoBtn {IconButton::Redo},
-               aBtn {IconButton::A}, bBtn {IconButton::B}, gearBtn {IconButton::Gear};
+               aBtn {IconButton::A}, bBtn {IconButton::B}, cBtn {IconButton::C}, dBtn {IconButton::D},
+               gearBtn {IconButton::Gear};
     Meter inMeter, outMeter;
     Analyser analyser { proc };
 
@@ -472,18 +564,38 @@ private:
 
     // layout rects (preenchidos em resized, usados em paint)
     juce::Rectangle<int> inCol, lowPanel, centerCol, highPanel, outCol,
-                         respGroup, osGroup, modeGroup, utilGroup, headerRect, presetNameArea, vizRect;
+                         respGroup, osGroup, modeGroup, utilGroup, headerRect, presetNameArea, vizRect, advRect;
 
     // estado UI
     int currentPreset = 0;
-    bool onB = false;
-    std::map<juce::String,float> slotA, slotB;
+    int abIndex = 0;
+    std::map<juce::String,float> abSlots[4];
     juce::StringArray presetNames;
+    std::unique_ptr<juce::FileChooser> fileChooser;
+    juce::File userPresetDir() const;
+    void saveStateToFile (const juce::File&);
+    void loadStateFromFile (const juce::File&);
 
     // meters suavizados (L/R e M/S)
     float mInL=0, mInR=0, mOutL=0, mOutR=0;
     float mInM=0, mInS=0, mOutM=0, mOutS=0;
     juce::String meterLblL = "L", meterLblR = "R";
 
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LevelXUI)
+};
+
+//==============================================================================
+// Editor: aloja o LevelXUI e escala-o para permitir redimensionar (rácio fixo).
+class PiradexMVAudioProcessorEditor : public juce::AudioProcessorEditor
+{
+public:
+    explicit PiradexMVAudioProcessorEditor (PiradexMVAudioProcessor&);
+    void resized() override;
+
+    static constexpr int baseW = 1260, baseH = 904;
+
+private:
+    PiradexMVAudioProcessor& proc;
+    LevelXUI ui;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PiradexMVAudioProcessorEditor)
 };

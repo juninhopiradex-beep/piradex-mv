@@ -49,9 +49,10 @@ public:
     {
         sr = sampleRate;
         det.prepare (sampleRate);
-        applyResponse (response);
+        if (! manualTimes) applyResponse (response);
+        updateHP();
     }
-    void reset() { det.reset(); }
+    void reset() { det.reset(); hpX = hpY = 0.0f; }
 
     // LOW (upward)
     void setLowThresh  (float dB) { lowThresh  = dB; }
@@ -62,33 +63,31 @@ public:
     void setHighRatio  (float r)  { highRatio  = juce::jmax (1.0f, r); }
     void setHighAmount (float a)  { highAmt = juce::jlimit (0.0f, 1.0f, a); }
 
-    void setResponse (int r) { if (r != response) { response = r; applyResponse (r); } }
+    void setResponse (int r) { manualTimes = false; if (r != response) { response = r; applyResponse (r); } }
+    void setTimes (float aMs, float rMs) { manualTimes = true; det.setTimes (aMs, rMs); }
+    void setKnee  (float dB) { knee = juce::jmax (0.1f, dB); }
+    void setDetectorHP (float freq)
+    {
+        hpOn = (freq >= 20.0f);
+        hpFreq = freq; updateHP();
+    }
 
-    // devolve o ganho linear para a amostra 'x' (detetor alimentado por 'x')
+    // devolve o ganho linear para a amostra 'x'
     inline float computeGain (float x)
     {
-        float e  = det.process (x);
+        float key = hpOn ? hp (x) : x;
+        float e  = det.process (key);
         float db = juce::Decibels::gainToDecibels (e + 1.0e-9f);
 
-        // LOW: upward compression — levanta abaixo do threshold, limitado a Max Gain
-        float lGainDb = 0.0f;
-        if (db < lowThresh)
-        {
-            const float upRatio = 2.5f;                 // quanto do défice é recuperado
-            float lift = (lowThresh - db) * (1.0f - 1.0f / upRatio);
-            lGainDb = juce::jmin (lift, lowMaxGain) * lowAmt;
-        }
+        // LOW: upward (soft-knee)
+        float upGR = upwardGR (db);
+        float lGainDb = juce::jmin (upGR, lowMaxGain) * lowAmt;
 
-        // HIGH: downward compression — reduz acima do threshold com ratio
-        float hGainDb = 0.0f;
-        if (db > highThresh)
-        {
-            float over = db - highThresh;
-            hGainDb = -(over - over / highRatio) * highAmt;
-        }
+        // HIGH: downward (soft-knee)
+        float downGR = downwardGR (db);
+        float hGainDb = -downGR * highAmt;
 
-        // makeup gain automático (como no MV2 real): compensa a redução,
-        // deixando o sinal mais presente/alto. Valor estático pelas definições.
+        // makeup automático
         float hMakeupDb = juce::jmin ((-highThresh) * (1.0f - 1.0f / highRatio) * highAmt * 0.6f, 12.0f);
 
         grLow  = lGainDb;
@@ -99,6 +98,33 @@ public:
     float grLow = 0.0f, grHigh = 0.0f;
 
 private:
+    inline float upwardGR (float db) const
+    {
+        const float upRatio = 2.5f, slope = 1.0f - 1.0f/upRatio;
+        float d = lowThresh - db;                 // >0 abaixo do threshold
+        if (d <= -knee*0.5f) return 0.0f;
+        if (d >=  knee*0.5f) return d * slope;
+        float t = d + knee*0.5f;                  // 0..knee
+        return slope * t*t / (2.0f*knee);
+    }
+    inline float downwardGR (float db) const
+    {
+        const float slope = 1.0f - 1.0f/highRatio;
+        float d = db - highThresh;                // >0 acima do threshold
+        if (d <= -knee*0.5f) return 0.0f;
+        if (d >=  knee*0.5f) return d * slope;
+        float t = d + knee*0.5f;
+        return slope * t*t / (2.0f*knee);
+    }
+    inline float hp (float in) noexcept
+    {
+        float out = hpA * (hpY + in - hpX);
+        hpX = in; hpY = out; return out;
+    }
+    void updateHP()
+    {
+        hpA = std::exp (-2.0f * juce::MathConstants<float>::pi * juce::jmax (1.0f, hpFreq) / (float) sr);
+    }
     void applyResponse (int r)
     {
         switch (r)
@@ -112,5 +138,8 @@ private:
     LevelDetector det;
     float lowThresh = -28.0f, lowMaxGain = 12.0f, lowAmt = 0.5f;
     float highThresh = -6.0f, highRatio = 4.0f,  highAmt = 0.5f;
+    float knee = 6.0f;
     int response = 1;
+    bool manualTimes = false;
+    bool hpOn = false; float hpFreq = 20.0f, hpA = 0.0f, hpX = 0.0f, hpY = 0.0f;
 };

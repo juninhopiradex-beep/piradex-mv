@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "MV2DSP.h"
+#include "MasterDSP.h"
 
 //==============================================================================
 class PiradexMVAudioProcessor : public juce::AudioProcessor
@@ -41,6 +42,12 @@ public:
     std::atomic<float> outPeakM { 0.0f }, outPeakS { 0.0f };
     std::atomic<float> grLowVal { 0.0f }, grHighVal{ 0.0f };
 
+    // loudness / true peak / clip (lidos pela UI)
+    std::atomic<float> lufsMval{-100.0f}, lufsSval{-100.0f}, lufsIval{-100.0f};
+    std::atomic<float> truePeakDb{-100.0f};
+    std::atomic<bool>  clipFlag { false };
+    void resetLoudness() { loudness.reset(); }
+
     // analisador de espectro (lido pela UI)
     static constexpr int fftOrder = 11;
     static constexpr int fftSize  = 1 << fftOrder;   // 2048
@@ -70,6 +77,14 @@ private:
     int   fifoIndex = 0;
     void pushSampleToFifo (float s) noexcept;
     void doFFT();
+
+    // mastering
+    LoudnessMeter   loudness;
+    TruePeakMeter   tpMeter;
+    LookaheadLimiter limiter;
+    Dither ditherL, ditherR;
+    float autoGainState = 1.0f;
+    int reportedLatency = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PiradexMVAudioProcessor)
 };

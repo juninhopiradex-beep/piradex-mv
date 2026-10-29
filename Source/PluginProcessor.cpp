@@ -16,7 +16,9 @@ juce::StringArray PiradexMVAudioProcessor::paramIDs()
 {
     return { "inputTrim","lowAmt","lowThresh","lowMaxGain","trim","mix",
              "highAmt","highThresh","highRatio","output",
-             "os","response","mode","bypass","mute","dim","mono","monMid","monSide" };
+             "os","response","mode","bypass","mute","dim","mono","monMid","monSide",
+             "scHP","knee","attack","release","ceiling","lookahead",
+             "limiter","dither","autoGain","delta" };
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout
@@ -51,7 +53,7 @@ PiradexMVAudioProcessor::createLayout()
     p.push_back (std::make_unique<CP>(juce::ParameterID{"os",1}, "Oversampling",
                  juce::StringArray{"1x","2x","4x","8x","16x","32x"}, 0));
     p.push_back (std::make_unique<CP>(juce::ParameterID{"response",1}, "Response",
-                 juce::StringArray{"Fast","Medium","Slow"}, 1));
+                 juce::StringArray{"Fast","Medium","Slow","Manual"}, 1));
     p.push_back (std::make_unique<CP>(juce::ParameterID{"mode",1}, "Stereo Mode",
                  juce::StringArray{"Stereo","Dual Mono","Mid/Side"}, 0));
 
@@ -61,6 +63,24 @@ PiradexMVAudioProcessor::createLayout()
     p.push_back (std::make_unique<BP>(juce::ParameterID{"mono",1},   "Mono",   false));
     p.push_back (std::make_unique<BP>(juce::ParameterID{"monMid",1}, "Mid",    false));
     p.push_back (std::make_unique<BP>(juce::ParameterID{"monSide",1},"Side",   false));
+
+    // --- avançado / mastering ---
+    p.push_back (std::make_unique<FP>(juce::ParameterID{"scHP",1}, "SC HP",
+                 juce::NormalisableRange<float>(0.0f, 500.0f, 1.0f, 0.5f), 0.0f));          // 0 = off
+    p.push_back (std::make_unique<FP>(juce::ParameterID{"knee",1}, "Knee",
+                 juce::NormalisableRange<float>(0.0f, 24.0f, 0.1f), 6.0f));
+    p.push_back (std::make_unique<FP>(juce::ParameterID{"attack",1}, "Attack",
+                 juce::NormalisableRange<float>(0.1f, 100.0f, 0.1f, 0.4f), 8.0f));
+    p.push_back (std::make_unique<FP>(juce::ParameterID{"release",1}, "Release",
+                 juce::NormalisableRange<float>(5.0f, 1000.0f, 1.0f, 0.4f), 140.0f));
+    p.push_back (std::make_unique<FP>(juce::ParameterID{"ceiling",1}, "Ceiling",
+                 juce::NormalisableRange<float>(-6.0f, 0.0f, 0.1f), -1.0f));
+    p.push_back (std::make_unique<FP>(juce::ParameterID{"lookahead",1}, "Lookahead",
+                 juce::NormalisableRange<float>(0.0f, 10.0f, 0.1f), 2.0f));
+    p.push_back (std::make_unique<BP>(juce::ParameterID{"limiter",1},  "Limiter",  false));
+    p.push_back (std::make_unique<BP>(juce::ParameterID{"dither",1},   "Dither",   false));
+    p.push_back (std::make_unique<BP>(juce::ParameterID{"autoGain",1}, "Auto Gain",false));
+    p.push_back (std::make_unique<BP>(juce::ParameterID{"delta",1},    "Delta",    false));
 
     return { p.begin(), p.end() };
 }
@@ -86,6 +106,16 @@ void PiradexMVAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     setEngineRate (sampleRate);
     lastFactor = 1;
     engL.reset(); engR.reset();
+
+    loudness.prepare (sampleRate);
+    tpMeter.prepare (sampleRate);
+    limiter.prepare (sampleRate, samplesPerBlock);
+    autoGainState = 1.0f;
+
+    const float look = apvts.getRawParameterValue ("lookahead")->load();
+    const bool  limOn= apvts.getRawParameterValue ("limiter")->load() > 0.5f;
+    limiter.setParams (apvts.getRawParameterValue ("ceiling")->load(), look, 150.0f);
+    setLatencySamples (limOn ? limiter.latency() : 0);
 }
 
 bool PiradexMVAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -179,6 +209,16 @@ void PiradexMVAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const int   osSel  = (int) pv("os");
     const int   resp   = (int) pv("response");
     const int   mode   = (int) pv("mode");
+    const float scHP   = pv("scHP");
+    const float knee   = pv("knee");
+    const float atk    = pv("attack");
+    const float rel    = pv("release");
+    const float ceilDb = pv("ceiling");
+    const float lookMs = pv("lookahead");
+    const bool  limOn  = pv("limiter")  > 0.5f;
+    const bool  ditOn  = pv("dither")   > 0.5f;
+    const bool  autoG  = pv("autoGain") > 0.5f;
+    const bool  delta  = pv("delta")    > 0.5f;
 
     // ganho de entrada (afeta o IN meter e a deteção)
     buffer.applyGain (juce::Decibels::decibelsToGain (inTrim));
@@ -208,7 +248,10 @@ void PiradexMVAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     {
         e->setLowThresh (lowThr); e->setLowMaxGain (lowMax); e->setLowAmount (lowAmt);
         e->setHighThresh (hiThr); e->setHighRatio (hiRat);   e->setHighAmount (hiAmt);
-        e->setResponse (resp);
+        e->setKnee (knee);
+        e->setDetectorHP (scHP);
+        if (resp == 3) e->setTimes (atk, rel);   // Manual
+        else           e->setResponse (resp);
     }
 
     if (bypass)
@@ -252,6 +295,45 @@ void PiradexMVAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         }
     }
 
+    // DELTA: ouvir só o que foi alterado (processado - original)
+    if (delta)
+    {
+        for (int ch = 0; ch < numCh; ++ch)
+        {
+            auto* w = buffer.getWritePointer (ch);
+            auto* dptr = dry.getReadPointer (juce::jmin (ch, dry.getNumChannels()-1));
+            for (int n = 0; n < numSamples; ++n) w[n] -= dptr[n];
+        }
+    }
+    else
+    {
+        // AUTO-GAIN: iguala o RMS do processado ao do original
+        if (autoG)
+        {
+            auto rmsOf = [] (const juce::AudioBuffer<float>& b, int ns){
+                double s=0.0; int ch=b.getNumChannels();
+                for (int c=0;c<ch;++c){ const float* d=b.getReadPointer(c);
+                    for (int n=0;n<ns;++n) s+=(double)d[n]*d[n]; }
+                return (float) std::sqrt (s / juce::jmax (1, ns*ch)); };
+            float dRms = rmsOf (dry, numSamples), wRms = rmsOf (buffer, numSamples);
+            float target = juce::jlimit (0.25f, 4.0f, dRms / (wRms + 1.0e-6f));
+            autoGainState += (target - autoGainState) * 0.10f;
+            buffer.applyGain (autoGainState);
+        }
+        else autoGainState = 1.0f;
+
+        // CEILING: limiter brickwall com lookahead
+        int wantLat = 0;
+        if (limOn)
+        {
+            limiter.setParams (ceilDb, lookMs, 150.0f);
+            limiter.process (buffer.getWritePointer (0),
+                             numCh > 1 ? buffer.getWritePointer (1) : nullptr, numSamples);
+            wantLat = limiter.latency();
+        }
+        if (wantLat != reportedLatency) { reportedLatency = wantLat; setLatencySamples (wantLat); }
+    }
+
     // monitorização: SIDE isola os lados, MID/MONO isolam o centro
     if (numCh > 1 && (monSide || monMid || mono))
     {
@@ -267,12 +349,34 @@ void PiradexMVAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     if (mute)      buffer.applyGain (0.0f);
     else if (dim)  buffer.applyGain (juce::Decibels::decibelsToGain (-12.0f));
 
-    // alimenta o analisador de espectro com o sinal final (mono)
+    // DITHER TPDF no output
+    if (ditOn)
+    {
+        ditherL.setEnabled (true); ditherR.setEnabled (true);
+        auto* L = buffer.getWritePointer (0);
+        auto* R = numCh > 1 ? buffer.getWritePointer (1) : nullptr;
+        for (int n = 0; n < numSamples; ++n) { L[n] = ditherL.process (L[n]); if (R) R[n] = ditherR.process (R[n]); }
+    }
+
+    // --- medição do output ---
     {
         const float* L = buffer.getReadPointer (0);
         const float* R = numCh > 1 ? buffer.getReadPointer (1) : L;
         for (int n = 0; n < numSamples; ++n)
             pushSampleToFifo (0.5f * (L[n] + R[n]));
+
+        loudness.process (L, numCh > 1 ? R : nullptr, numSamples);
+        lufsMval.store (loudness.getM()); lufsSval.store (loudness.getS()); lufsIval.store (loudness.getI());
+
+        tpMeter.decay (0.97f);
+        tpMeter.process (L, numSamples);
+        if (numCh > 1) tpMeter.process (R, numSamples);
+        truePeakDb.store (juce::Decibels::gainToDecibels (tpMeter.getPeak() + 1.0e-9f));
+
+        bool clip = false;
+        for (int ch = 0; ch < numCh; ++ch)
+            if (buffer.getMagnitude (ch, 0, numSamples) > 1.0f) { clip = true; break; }
+        if (clip) clipFlag.store (true);
     }
 
     outPeakL.store (buffer.getMagnitude (0, 0, numSamples));
