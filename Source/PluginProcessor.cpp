@@ -1,5 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include <cstring>
+#include <cmath>
 
 //==============================================================================
 PiradexMVAudioProcessor::PiradexMVAudioProcessor()
@@ -14,7 +16,7 @@ juce::StringArray PiradexMVAudioProcessor::paramIDs()
 {
     return { "inputTrim","lowAmt","lowThresh","lowMaxGain","trim","mix",
              "highAmt","highThresh","highRatio","output",
-             "os","response","mode","bypass","mute","dim","mono" };
+             "os","response","mode","bypass","mute","dim","mono","monMid","monSide" };
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout
@@ -57,6 +59,8 @@ PiradexMVAudioProcessor::createLayout()
     p.push_back (std::make_unique<BP>(juce::ParameterID{"mute",1},   "Mute",   false));
     p.push_back (std::make_unique<BP>(juce::ParameterID{"dim",1},    "Dim",    false));
     p.push_back (std::make_unique<BP>(juce::ParameterID{"mono",1},   "Mono",   false));
+    p.push_back (std::make_unique<BP>(juce::ParameterID{"monMid",1}, "Mid",    false));
+    p.push_back (std::make_unique<BP>(juce::ParameterID{"monSide",1},"Side",   false));
 
     return { p.begin(), p.end() };
 }
@@ -170,6 +174,8 @@ void PiradexMVAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool  mute   = pv("mute") > 0.5f;
     const bool  dim    = pv("dim")  > 0.5f;
     const bool  mono   = pv("mono") > 0.5f;
+    const bool  monMid = pv("monMid")  > 0.5f;
+    const bool  monSide= pv("monSide") > 0.5f;
     const int   osSel  = (int) pv("os");
     const int   resp   = (int) pv("response");
     const int   mode   = (int) pv("mode");
@@ -246,21 +252,67 @@ void PiradexMVAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         }
     }
 
-    if (mono && numCh > 1)
+    // monitorização: SIDE isola os lados, MID/MONO isolam o centro
+    if (numCh > 1 && (monSide || monMid || mono))
     {
         auto* L = buffer.getWritePointer (0);
         auto* R = buffer.getWritePointer (1);
-        for (int n = 0; n < numSamples; ++n) { float m = 0.5f*(L[n]+R[n]); L[n]=R[n]=m; }
+        for (int n = 0; n < numSamples; ++n)
+        {
+            float v = monSide ? 0.5f*(L[n]-R[n]) : 0.5f*(L[n]+R[n]);
+            L[n] = R[n] = v;
+        }
     }
 
     if (mute)      buffer.applyGain (0.0f);
     else if (dim)  buffer.applyGain (juce::Decibels::decibelsToGain (-12.0f));
+
+    // alimenta o analisador de espectro com o sinal final (mono)
+    {
+        const float* L = buffer.getReadPointer (0);
+        const float* R = numCh > 1 ? buffer.getReadPointer (1) : L;
+        for (int n = 0; n < numSamples; ++n)
+            pushSampleToFifo (0.5f * (L[n] + R[n]));
+    }
 
     outPeakL.store (buffer.getMagnitude (0, 0, numSamples));
     if (numCh > 1) outPeakR.store (buffer.getMagnitude (1, 0, numSamples));
     { float m,s; msPeak (buffer, numSamples, m, s); outPeakM.store (m); outPeakS.store (s); }
     grLowVal .store (engL.grLow);
     grHighVal.store (engL.grHigh);
+}
+
+//==============================================================================
+void PiradexMVAudioProcessor::pushSampleToFifo (float s) noexcept
+{
+    if (fifoIndex == fftSize)
+    {
+        doFFT();
+        fifoIndex = 0;
+    }
+    fifo[fifoIndex++] = s;
+}
+
+void PiradexMVAudioProcessor::doFFT()
+{
+    juce::zeromem (fftData, sizeof (fftData));
+    std::memcpy (fftData, fifo, sizeof (float) * (size_t) fftSize);
+    window.multiplyWithWindowingTable (fftData, (size_t) fftSize);
+    forwardFFT.performFrequencyOnlyForwardTransform (fftData);
+
+    const int half = fftSize / 2;
+    for (int i = 0; i < numBins; ++i)
+    {
+        // eixo logarítmico: mapeia o bin de display para um bin do FFT
+        float f = (float) i / (float) numBins;
+        int b0 = (int) std::round (std::pow ((float) half, f));
+        b0 = juce::jlimit (1, half - 1, b0);
+        float mag = fftData[b0];
+        float db  = juce::Decibels::gainToDecibels (mag / (float) fftSize + 1.0e-9f);
+        float norm = juce::jlimit (0.0f, 1.0f, (db + 90.0f) / 90.0f);   // -90..0 dB
+        float prev = spectrum[i].load();
+        spectrum[i].store (norm > prev ? norm : prev * 0.82f + norm * 0.18f); // decay suave
+    }
 }
 
 //==============================================================================

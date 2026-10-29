@@ -41,6 +41,12 @@ public:
     std::atomic<float> outPeakM { 0.0f }, outPeakS { 0.0f };
     std::atomic<float> grLowVal { 0.0f }, grHighVal{ 0.0f };
 
+    // analisador de espectro (lido pela UI)
+    static constexpr int fftOrder = 11;
+    static constexpr int fftSize  = 1 << fftOrder;   // 2048
+    static constexpr int numBins  = 256;
+    std::atomic<float> spectrum[numBins];
+
     static juce::StringArray paramIDs();
 
 private:
@@ -55,6 +61,15 @@ private:
     juce::dsp::Oversampling<float>* currentOS (int factor);
     void setEngineRate (double effectiveSR);
     void processChannels (float* const* chans, int numCh, int ns, int mode);
+
+    // FFT
+    juce::dsp::FFT forwardFFT { fftOrder };
+    juce::dsp::WindowingFunction<float> window { (size_t) fftSize, juce::dsp::WindowingFunction<float>::hann };
+    float fifo [fftSize] { 0.0f };
+    float fftData [2 * fftSize] { 0.0f };
+    int   fifoIndex = 0;
+    void pushSampleToFifo (float s) noexcept;
+    void doFFT();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PiradexMVAudioProcessor)
 };

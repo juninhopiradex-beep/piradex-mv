@@ -61,9 +61,9 @@ PiradexMVAudioProcessorEditor::PiradexMVAudioProcessorEditor (PiradexMVAudioProc
     osSeg.setItems   ({ "1x","2x","4x","8x","16x","32x" });
     modeSeg.setItems ({ "STEREO","DUAL MONO","MID-SIDE" });
 
-    for (auto* b : { &bypassBtn,&muteBtn,&dimBtn,&monoBtn }) addAndMakeVisible (*b);
+    for (auto* b : { &bypassBtn,&muteBtn,&dimBtn,&monoBtn,&midBtn,&sideBtn }) addAndMakeVisible (*b);
     for (auto* b : { &prevBtn,&nextBtn,&undoBtn,&redoBtn,&aBtn,&bBtn,&gearBtn }) addAndMakeVisible (*b);
-    addAndMakeVisible (inMeter); addAndMakeVisible (outMeter);
+    addAndMakeVisible (inMeter); addAndMakeVisible (outMeter); addAndMakeVisible (analyser);
 
     // attachments
     auto& v = proc.apvts;
@@ -74,6 +74,7 @@ PiradexMVAudioProcessorEditor::PiradexMVAudioProcessorEditor (PiradexMVAudioProc
     SAmk ("lowAmt", lowFader); SAmk ("highAmt", highFader);
     auto BAmk = [&] (const char* id, juce::Button& b){ bAtt.push_back (std::make_unique<BA>(v,id,b)); };
     BAmk ("bypass", bypassBtn); BAmk ("mute", muteBtn); BAmk ("dim", dimBtn); BAmk ("mono", monoBtn);
+    BAmk ("monMid", midBtn); BAmk ("monSide", sideBtn);
 
     bindChoice (respSeg, "response");
     bindChoice (osSeg,   "os");
@@ -112,7 +113,7 @@ PiradexMVAudioProcessorEditor::PiradexMVAudioProcessorEditor (PiradexMVAudioProc
     slotB = slotA;
 
     applyThemeToAll();
-    setSize (1160, 560);
+    setSize (1260, 800);
     startTimerHz (30);
 }
 
@@ -125,8 +126,8 @@ void PiradexMVAudioProcessorEditor::applyThemeToAll()
     setLookAndFeel (&lnf);
 
     for (auto* c : std::initializer_list<Themed*>{ &respSeg,&osSeg,&modeSeg,
-            &bypassBtn,&muteBtn,&dimBtn,&monoBtn,
-            &prevBtn,&nextBtn,&undoBtn,&redoBtn,&aBtn,&bBtn,&gearBtn,&inMeter,&outMeter })
+            &bypassBtn,&muteBtn,&dimBtn,&monoBtn,&midBtn,&sideBtn,
+            &prevBtn,&nextBtn,&undoBtn,&redoBtn,&aBtn,&bBtn,&gearBtn,&inMeter,&outMeter,&analyser })
         c->th = &th;
 
     auto setAccent = [] (juce::Slider& s, juce::Colour col){ s.getProperties().set ("accent", (int) col.getARGB()); };
@@ -377,6 +378,14 @@ void PiradexMVAudioProcessorEditor::drawKnobLabels (juce::Graphics& g)
 void PiradexMVAudioProcessorEditor::paint (juce::Graphics& g)
 {
     g.fillAll (th.bg);
+    // brilho radial subtil no topo (Obsidian)
+    {
+        auto top = getLocalBounds().toFloat();
+        juce::ColourGradient bgg (th.panelHi.withAlpha (th.dark ? 0.55f : 0.0f),
+                                  top.getCentreX(), -120.0f,
+                                  th.bg.withAlpha (0.0f), top.getCentreX(), top.getHeight()*0.6f, true);
+        g.setGradientFill (bgg); g.fillRect (top);
+    }
     drawHeader (g, headerRect);
 
     // colunas IN / OUT (labels)
@@ -481,13 +490,21 @@ void PiradexMVAudioProcessorEditor::resized()
         presetNameArea = band;
     }
 
+    // ---- visualizador (topo) ----
+    vizRect = area.removeFromTop (196);
+    analyser.setBounds (vizRect);
+    area.removeFromTop (12);
+
     // ---- corpo ----
     const int g = 10;
-    inCol     = area.removeFromLeft (125); area.removeFromLeft (g);
-    lowPanel  = area.removeFromLeft (345); area.removeFromLeft (g);
-    centerCol = area.removeFromLeft (120); area.removeFromLeft (g);
-    highPanel = area.removeFromLeft (345); area.removeFromLeft (g);
-    outCol    = area;
+    inCol  = area.removeFromLeft (132);  area.removeFromLeft (g);
+    outCol = area.removeFromRight (132); area.removeFromRight (g);
+    // 'area' = low | center | high
+    const int cw = 140;
+    int side = (area.getWidth() - cw - 2*g) / 2;
+    lowPanel  = area.removeFromLeft (side); area.removeFromLeft (g);
+    centerCol = area.removeFromLeft (cw);   area.removeFromLeft (g);
+    highPanel = area;
 
     auto placeKnob = [] (juce::Slider& s, juce::Rectangle<int> cell, int reserve = 38)
     {
@@ -555,10 +572,8 @@ void PiradexMVAudioProcessorEditor::resized()
 
     {
         auto u = utilGroup; u.removeFromTop (16); u = u.reduced (8, 4);
-        int bw = (u.getWidth() - 3*6) / 4;
-        bypassBtn.setBounds (u.removeFromLeft (bw)); u.removeFromLeft (6);
-        muteBtn.setBounds   (u.removeFromLeft (bw)); u.removeFromLeft (6);
-        dimBtn.setBounds    (u.removeFromLeft (bw)); u.removeFromLeft (6);
-        monoBtn.setBounds   (u.removeFromLeft (bw));
+        IconToggle* ub[] = { &bypassBtn,&muteBtn,&dimBtn,&monoBtn,&midBtn,&sideBtn };
+        int bw = (u.getWidth() - 5*5) / 6;
+        for (int i=0;i<6;++i){ ub[i]->setBounds (u.removeFromLeft (bw)); if (i<5) u.removeFromLeft (5); }
     }
 }

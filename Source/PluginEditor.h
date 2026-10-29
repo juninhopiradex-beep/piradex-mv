@@ -62,7 +62,7 @@ private:
 class IconToggle : public juce::Button, public Themed
 {
 public:
-    enum Kind { Power, Speaker, Half, Rings };
+    enum Kind { Power, Speaker, Half, Rings, Mid, Side };
     IconToggle (const juce::String& t, Kind k) : juce::Button (t), kind (k)
     { setClickingTogglesState (true); }
 
@@ -102,10 +102,26 @@ public:
             juce::Path p; p.addPieSegment (c.x-r, c.y-r, r*2, r*2, 0.0f, juce::MathConstants<float>::pi, 0.0f);
             g.fillPath (p);
         }
-        else // Rings
+        else if (kind == Rings)
         {
             g.drawEllipse (c.x-r, c.y-r*0.55f, r*1.3f, r*1.3f, lw);
             g.drawEllipse (c.x-r*0.3f, c.y-r*0.55f, r*1.3f, r*1.3f, lw);
+        }
+        else if (kind == Mid)
+        {
+            // centro: círculo com ponto cheio
+            g.drawEllipse (c.x-r, c.y-r, r*2, r*2, lw);
+            g.fillEllipse (c.x-r*0.32f, c.y-r*0.32f, r*0.64f, r*0.64f);
+        }
+        else // Side
+        {
+            // lados: dois arcos a abrir para fora
+            juce::Path l; l.addCentredArc (c.x-r*0.2f, c.y, r*0.8f, r, 0.0f,
+                 juce::MathConstants<float>::pi*1.15f, juce::MathConstants<float>::pi*1.85f, true);
+            juce::Path rr; rr.addCentredArc (c.x+r*0.2f, c.y, r*0.8f, r, 0.0f,
+                 juce::MathConstants<float>::pi*0.15f, juce::MathConstants<float>::pi*0.85f, true);
+            g.strokePath (l, juce::PathStrokeType (lw));
+            g.strokePath (rr, juce::PathStrokeType (lw));
         }
 
         g.setColour (on ? accent : th->textDim);
@@ -235,6 +251,170 @@ private:
 };
 
 //==============================================================================
+// Visualizador: SPECTRUM / CURVE / METERS (com tabs clicáveis)
+class Analyser : public juce::Component, public Themed
+{
+public:
+    explicit Analyser (PiradexMVAudioProcessor& p) : proc (p) {}
+    int tab = 0;
+    const juce::StringArray tabs { "SPECTRUM", "CURVE", "METERS" };
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (e.position.y > 34.0f) return;
+        float x = 18.0f;
+        for (int i = 0; i < tabs.size(); ++i)
+        {
+            float w = tabWidth (tabs[i]);
+            if (e.position.x >= x-6 && e.position.x <= x+w+6) { tab = i; repaint(); return; }
+            x += w + 26.0f;
+        }
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        if (th == nullptr) return;
+        auto b = getLocalBounds().toFloat();
+        // fundo do painel
+        juce::ColourGradient pg (th->panelHi, b.getCentreX(), b.getY(),
+                                 th->panel, b.getCentreX(), b.getBottom(), false);
+        g.setGradientFill (pg); g.fillRoundedRectangle (b, 12.0f);
+        g.setColour (th->stroke); g.drawRoundedRectangle (b, 12.0f, 1.0f);
+
+        // tabs
+        float x = 18.0f;
+        for (int i = 0; i < tabs.size(); ++i)
+        {
+            float w = tabWidth (tabs[i]);
+            g.setColour (i == tab ? th->blue : th->textDim);
+            g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+            g.drawText (tabs[i], (int) x, 12, (int) w + 4, 16, juce::Justification::left);
+            if (i == tab) { g.setColour (th->blue); g.fillRect (x, 30.0f, w, 2.0f); }
+            x += w + 26.0f;
+        }
+
+        auto area = b.reduced (16.0f).withTrimmedTop (28.0f);
+        if      (tab == 0) drawSpectrum (g, area);
+        else if (tab == 1) drawCurve (g, area);
+        else               drawMeters (g, area);
+    }
+
+private:
+    float tabWidth (const juce::String& s) const
+    {
+        return juce::Font (juce::FontOptions (11.0f, juce::Font::bold)).getStringWidthFloat (s);
+    }
+
+    void drawSpectrum (juce::Graphics& g, juce::Rectangle<float> a)
+    {
+        const int n = PiradexMVAudioProcessor::numBins;
+        // grelha vertical (freq)
+        const char* labels[] = {"20","50","100","200","500","1k","2k","5k","10k","20k"};
+        g.setFont (juce::Font (juce::FontOptions (8.0f)));
+        for (int j = 0; j < 10; ++j)
+        {
+            float gx = a.getX() + (j/9.0f)*a.getWidth();
+            g.setColour (th->stroke.withAlpha (0.5f));
+            g.drawVerticalLine ((int) gx, a.getY(), a.getBottom());
+            g.setColour (th->sub);
+            g.drawText (labels[j], (int) gx-12, (int) a.getBottom()+1, 24, 10, juce::Justification::centred);
+        }
+        for (int k = 1; k < 4; ++k)
+        { float gy = a.getY() + k*a.getHeight()/4; g.setColour (th->stroke.withAlpha (0.35f));
+          g.drawHorizontalLine ((int) gy, a.getX(), a.getRight()); }
+
+        juce::Path line, fill;
+        for (int i = 0; i < n; ++i)
+        {
+            float v = proc.spectrum[i].load();
+            float px = a.getX() + (float) i / (n-1) * a.getWidth();
+            float py = a.getBottom() - v * a.getHeight();
+            if (i == 0) { line.startNewSubPath (px, py); fill.startNewSubPath (px, a.getBottom()); fill.lineTo (px, py); }
+            else { line.lineTo (px, py); fill.lineTo (px, py); }
+        }
+        fill.lineTo (a.getRight(), a.getBottom()); fill.closeSubPath();
+        g.setGradientFill (juce::ColourGradient (th->blue.withAlpha (0.45f), a.getX(), a.getY(),
+                                                 th->blue.withAlpha (0.0f), a.getX(), a.getBottom(), false));
+        g.fillPath (fill);
+        g.setColour (th->blue);
+        g.strokePath (line, juce::PathStrokeType (2.0f));
+    }
+
+    void drawCurve (juce::Graphics& g, juce::Rectangle<float> a)
+    {
+        auto pv = [this] (const char* id){ return proc.apvts.getRawParameterValue (id)->load(); };
+        float lThr = pv("lowThresh"), lMax = pv("lowMaxGain"), lAmt = pv("lowAmt")/100.0f;
+        float hThr = pv("highThresh"), hRat = pv("highRatio"), hAmt = pv("highAmt")/100.0f;
+        // quadrado centrado
+        float side = juce::jmin (a.getWidth(), a.getHeight());
+        juce::Rectangle<float> sq (a.getCentreX()-side/2, a.getY(), side, side);
+
+        g.setColour (th->stroke.withAlpha (0.5f));
+        for (int k=1;k<4;++k){ float t=k/4.0f;
+            g.drawVerticalLine ((int)(sq.getX()+t*sq.getWidth()), sq.getY(), sq.getBottom());
+            g.drawHorizontalLine ((int)(sq.getY()+t*sq.getHeight()), sq.getX(), sq.getRight()); }
+        // unidade
+        g.setColour (th->sub);
+        g.drawLine (sq.getX(), sq.getBottom(), sq.getRight(), sq.getY(), 1.2f);
+
+        auto mapx = [&](float db){ return sq.getX() + (db+60)/60.0f*sq.getWidth(); };
+        auto mapy = [&](float db){ return sq.getBottom() - (db+60)/66.0f*sq.getHeight(); };
+        juce::Path p; bool first=true;
+        for (int i=0;i<=120;++i)
+        {
+            float indb = -60 + i*0.5f;
+            float out = indb;
+            if (indb < lThr) { float lift=(lThr-indb)*(1.0f-1.0f/2.5f); out = indb + juce::jmin(lift,lMax)*lAmt; }
+            else if (indb > hThr) { float over=indb-hThr; out = indb - (over-over/hRat)*hAmt; }
+            float mk = juce::jmin ((-hThr)*(1.0f-1.0f/hRat)*hAmt*0.6f, 12.0f);
+            out += mk;
+            out = juce::jlimit (-60.0f, 6.0f, out);
+            float x=mapx(indb), y=mapy(out);
+            if (first){ p.startNewSubPath(x,y); first=false; } else p.lineTo(x,y);
+        }
+        g.setColour (th->blue);
+        g.strokePath (p, juce::PathStrokeType (2.6f, juce::PathStrokeType::curved));
+        g.setColour (th->sub); g.setFont (juce::Font (juce::FontOptions (8.5f)));
+        g.drawText ("IN", sq.getRight()-20, (int)sq.getBottom()-14, 20, 12, juce::Justification::right);
+        g.drawText ("OUT", sq.getX()+2, (int)sq.getY(), 30, 12, juce::Justification::left);
+    }
+
+    void drawMeters (juce::Graphics& g, juce::Rectangle<float> a)
+    {
+        bool ms = (int) proc.apvts.getRawParameterValue ("mode")->load() == 2;
+        auto norm=[](float pk){ float d=juce::Decibels::gainToDecibels(pk+1e-6f); return juce::jlimit(0.0f,1.0f,(d+60)/60); };
+        struct B { juce::String name; float lv; };
+        std::vector<B> bars = {
+            { ms?"IN M":"IN L",  norm (ms?proc.inPeakM.load():proc.inPeakL.load()) },
+            { ms?"IN S":"IN R",  norm (ms?proc.inPeakS.load():proc.inPeakR.load()) },
+            { ms?"OUT M":"OUT L",norm (ms?proc.outPeakM.load():proc.outPeakL.load()) },
+            { ms?"OUT S":"OUT R",norm (ms?proc.outPeakS.load():proc.outPeakR.load()) },
+        };
+        float gap=18.0f, bw=(a.getWidth()-3*gap)/4.0f;
+        float x=a.getX();
+        for (auto& bar : bars)
+        {
+            juce::Rectangle<float> r (x, a.getY(), bw, a.getHeight()-16);
+            g.setColour (th->slot); g.fillRoundedRectangle (r, 3.0f);
+            g.setColour (th->stroke); g.drawRoundedRectangle (r, 3.0f, 1.0f);
+            const int segs=28; float sg=2.0f; auto inr=r.reduced(3.0f);
+            float sh=(inr.getHeight()-(segs-1)*sg)/segs; int lit=juce::roundToInt(bar.lv*segs);
+            for (int i=0;i<segs;++i){ float t=(float)i/(segs-1);
+                juce::Colour col = t<0.6f?th->meterLo.interpolatedWith(th->meterMid,t/0.6f)
+                                 : t<0.85f?th->meterMid.interpolatedWith(th->meterHi,(t-0.6f)/0.25f):th->meterHi;
+                float yy=inr.getBottom()-(i+1)*sh-i*sg;
+                g.setColour (i<lit?col:th->sub.withAlpha(0.2f));
+                g.fillRect (inr.getX(), yy, inr.getWidth(), sh); }
+            g.setColour (th->textDim); g.setFont (juce::Font (juce::FontOptions (9.0f, juce::Font::bold)));
+            g.drawText (bar.name, (int)x, (int)a.getBottom()-14, (int)bw, 12, juce::Justification::centred);
+            x += bw + gap;
+        }
+    }
+
+    PiradexMVAudioProcessor& proc;
+};
+
+//==============================================================================
 class PiradexMVAudioProcessorEditor : public juce::AudioProcessorEditor,
                                       private juce::Timer
 {
@@ -275,11 +455,13 @@ private:
     juce::Slider lowFader, highFader;
     SegBar respSeg, osSeg, modeSeg;
     IconToggle bypassBtn {"BYPASS", IconToggle::Power}, muteBtn {"MUTE", IconToggle::Speaker},
-               dimBtn {"DIM", IconToggle::Half}, monoBtn {"MONO", IconToggle::Rings};
+               dimBtn {"DIM", IconToggle::Half}, monoBtn {"MONO", IconToggle::Rings},
+               midBtn {"MID", IconToggle::Mid}, sideBtn {"SIDE", IconToggle::Side};
     IconButton prevBtn {IconButton::Prev}, nextBtn {IconButton::Next},
                undoBtn {IconButton::Undo}, redoBtn {IconButton::Redo},
                aBtn {IconButton::A}, bBtn {IconButton::B}, gearBtn {IconButton::Gear};
     Meter inMeter, outMeter;
+    Analyser analyser { proc };
 
     std::vector<KnobInfo> knobs;
 
@@ -290,7 +472,7 @@ private:
 
     // layout rects (preenchidos em resized, usados em paint)
     juce::Rectangle<int> inCol, lowPanel, centerCol, highPanel, outCol,
-                         respGroup, osGroup, modeGroup, utilGroup, headerRect, presetNameArea;
+                         respGroup, osGroup, modeGroup, utilGroup, headerRect, presetNameArea, vizRect;
 
     // estado UI
     int currentPreset = 0;
