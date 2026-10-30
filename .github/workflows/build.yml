@@ -160,7 +160,8 @@ jobs:
         shell: pwsh
         run: |
           # usa o gerador VS por omissão (o runner usa VS 2026)
-          cmake -B C:/b -A x64 *>&1 | Tee-Object -FilePath win-configure.log
+          # /Ob1 limita o inlining do MSVC (evita a explosao de tempo de compilacao em codigo JUCE/templates)
+          cmake -B C:/b -A x64 -DCMAKE_CXX_FLAGS_RELEASE="/O2 /Ob1 /DNDEBUG" -DCMAKE_C_FLAGS_RELEASE="/O2 /Ob1 /DNDEBUG" *>&1 | Tee-Object -FilePath win-configure.log
           exit $LASTEXITCODE
 
       - name: Build (Release)
