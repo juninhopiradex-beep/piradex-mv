@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "License.h"
 
 //==============================================================================
 namespace fmt
