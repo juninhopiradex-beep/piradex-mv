@@ -210,4 +210,9 @@ juce::String License::statusText() const
          + juce::String (currentKey->expDay).paddedLeft ('0', 2) + "/"
          + juce::String (currentKey->expMonth).paddedLeft ('0', 2) + "/" + juce::String (currentKey->expYear);
 }
+
+// Interface fina (LicenseGate.h) — mantém o <juce_cryptography> fora das TUs pesadas.
+bool isUnlockedGate()   { return License::get().isUnlocked(); }
+void initGate()         { License::get(); }
+void checkExpiryGate()  { License::get().checkExpiry(); }
 } // namespace lic

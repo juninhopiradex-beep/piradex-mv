@@ -1,5 +1,5 @@
 #include "PluginEditor.h"
-#include "License.h"
+#include "LicenseGate.h"
 
 //==============================================================================
 namespace fmt
@@ -156,7 +156,7 @@ PiradexMVAudioProcessorEditor::PiradexMVAudioProcessorEditor (PiradexMVAudioProc
     addAndMakeVisible (ui);
     login = lvlx::makeLoginOverlay ([this] { if (login) login->setVisible (false); });
     addChildComponent (*login);
-    login->setVisible (! lic::License::get().isUnlocked());
+    login->setVisible (! lic::isUnlockedGate());
     startTimerHz (4);
     setResizable (true, true);
     setResizeLimits ((int) (baseW*0.7), (int) (baseH*0.7), (int) (baseW*1.7), (int) (baseH*1.7));
@@ -177,8 +177,8 @@ void PiradexMVAudioProcessorEditor::resized()
 
 void PiradexMVAudioProcessorEditor::timerCallback()
 {
-    lic::License::get().checkExpiry();
-    const bool locked = ! lic::License::get().isUnlocked();
+    lic::checkExpiryGate();
+    const bool locked = ! lic::isUnlockedGate();
     if (login && locked != login->isVisible())
     {
         login->setVisible (locked);
