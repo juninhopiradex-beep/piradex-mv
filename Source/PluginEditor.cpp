@@ -153,9 +153,9 @@ PiradexMVAudioProcessorEditor::PiradexMVAudioProcessorEditor (PiradexMVAudioProc
     : juce::AudioProcessorEditor (&p), proc (p), ui (p)
 {
     addAndMakeVisible (ui);
-    addChildComponent (login);
-    login.onUnlock = [this] { login.setVisible (false); };
-    login.setVisible (! lic::License::get().isUnlocked());
+    login = lvlx::makeLoginOverlay ([this] { if (login) login->setVisible (false); });
+    addChildComponent (*login);
+    login->setVisible (! lic::License::get().isUnlocked());
     startTimerHz (4);
     setResizable (true, true);
     setResizeLimits ((int) (baseW*0.7), (int) (baseH*0.7), (int) (baseW*1.7), (int) (baseH*1.7));
@@ -170,8 +170,7 @@ void PiradexMVAudioProcessorEditor::resized()
     const float s = (float) getWidth() / (float) baseW;
     ui.setTransform (juce::AffineTransform::scale (s));
     ui.setBounds (0, 0, baseW, baseH);
-    login.setBounds (getLocalBounds());
-    if (login.isVisible()) login.toFront (false);
+    if (login) { login->setBounds (getLocalBounds()); if (login->isVisible()) login->toFront (false); }
     proc.apvts.state.setProperty ("uiW", getWidth(), nullptr);
 }
 
@@ -179,10 +178,10 @@ void PiradexMVAudioProcessorEditor::timerCallback()
 {
     lic::License::get().checkExpiry();
     const bool locked = ! lic::License::get().isUnlocked();
-    if (locked != login.isVisible())
+    if (login && locked != login->isVisible())
     {
-        login.setVisible (locked);
-        if (locked) { login.setBounds (getLocalBounds()); login.toFront (false); }
+        login->setVisible (locked);
+        if (locked) { login->setBounds (getLocalBounds()); login->toFront (false); }
     }
 }
 

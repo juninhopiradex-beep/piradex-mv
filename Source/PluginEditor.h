@@ -600,6 +600,6 @@ public:
 private:
     PiradexMVAudioProcessor& proc;
     LevelXUI ui;
-    lvlx::LoginOverlay login;
+    std::unique_ptr<juce::Component> login;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PiradexMVAudioProcessorEditor)
 };

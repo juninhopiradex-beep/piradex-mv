@@ -40,6 +40,7 @@ target_sources(PiradexMV PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
     Source/License.cpp
+    Source/Login.cpp
 )
 
 target_compile_definitions(PiradexMV PUBLIC
