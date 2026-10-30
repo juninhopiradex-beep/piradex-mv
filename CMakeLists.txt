@@ -39,6 +39,7 @@ juce_generate_juce_header(PiradexMV)
 target_sources(PiradexMV PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/License.cpp
 )
 
 target_compile_definitions(PiradexMV PUBLIC
@@ -52,6 +53,7 @@ target_link_libraries(PiradexMV
     PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
+        juce::juce_cryptography
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

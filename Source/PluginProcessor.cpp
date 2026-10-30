@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "License.h"
 #include <cstring>
 #include <cmath>
 
@@ -10,6 +11,7 @@ PiradexMVAudioProcessor::PiradexMVAudioProcessor()
                         .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createLayout())
 {
+    lic::License::get();   // inicializa o estado da licença na thread de mensagens
 }
 
 juce::StringArray PiradexMVAudioProcessor::paramIDs()
@@ -187,6 +189,10 @@ void PiradexMVAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     juce::ScopedNoDenormals noDenormals;
     const int numCh = buffer.getNumChannels();
     const int numSamples = buffer.getNumSamples();
+
+    // Bloqueado (a partir de 01/01/2027 sem senha válida): áudio passa transparente.
+    if (! lic::License::get().isUnlocked())
+        return;
 
     auto pv = [this] (const char* id) { return apvts.getRawParameterValue (id)->load(); };
 

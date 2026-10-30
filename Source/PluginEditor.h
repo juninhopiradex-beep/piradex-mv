@@ -2,6 +2,7 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 #include "LookAndFeel.h"
+#include "Login.h"
 #include <map>
 
 //==============================================================================
@@ -586,16 +587,19 @@ private:
 
 //==============================================================================
 // Editor: aloja o LevelXUI e escala-o para permitir redimensionar (rácio fixo).
-class PiradexMVAudioProcessorEditor : public juce::AudioProcessorEditor
+class PiradexMVAudioProcessorEditor : public juce::AudioProcessorEditor,
+                                      private juce::Timer
 {
 public:
     explicit PiradexMVAudioProcessorEditor (PiradexMVAudioProcessor&);
     void resized() override;
+    void timerCallback() override;
 
     static constexpr int baseW = 1260, baseH = 904;
 
 private:
     PiradexMVAudioProcessor& proc;
     LevelXUI ui;
+    lvlx::LoginOverlay login;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PiradexMVAudioProcessorEditor)
 };
