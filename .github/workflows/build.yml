@@ -165,7 +165,7 @@ jobs:
       - name: Build (Release)
         shell: pwsh
         run: |
-          cmake --build C:/b --config Release *>&1 | Tee-Object -Append win-configure.log
+          cmake --build C:/b --config Release --target PiradexMV_VST3 *>&1 | Tee-Object -Append win-configure.log
           exit $LASTEXITCODE
 
       - name: Capture logs on failure
