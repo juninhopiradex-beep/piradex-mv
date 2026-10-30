@@ -14,7 +14,7 @@ public:
 
     LoginOverlay()
     {
-        pw.setPasswordCharacter ((juce_wchar) 0x2022);
+        pw.setPasswordCharacter ((juce::juce_wchar) 0x2022);
         pw.setJustification (juce::Justification::centred);
         pw.setTextToShowWhenEmpty ("Senha", juce::Colour (0xff6b7b8c));
         pw.onReturnKey = [this] { attempt(); };
