@@ -14,6 +14,7 @@ public:
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void processAudio (juce::AudioBuffer<float>&);   // corpo do DSP (fora do processBlock p/ o MSVC nao explodir)
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }

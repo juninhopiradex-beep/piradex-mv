@@ -186,13 +186,21 @@ void PiradexMVAudioProcessor::processChannels (float* const* chans, int numCh, i
 
 void PiradexMVAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
-    juce::ScopedNoDenormals noDenormals;
-    const int numCh = buffer.getNumChannels();
-    const int numSamples = buffer.getNumSamples();
-
     // Bloqueado (a partir de 01/01/2027 sem senha válida): áudio passa transparente.
     if (! lic::isUnlockedGate())
         return;
+
+    processAudio (buffer);
+}
+
+// O corpo pesado do DSP vive aqui (fora do processBlock). Juntar o early-return do
+// gate de licença com esta função enorme (oversampling 1x-32x) fazia o otimizador do
+// MSVC explodir no tempo de compilacao; separando, cada funcao compila normalmente.
+void PiradexMVAudioProcessor::processAudio (juce::AudioBuffer<float>& buffer)
+{
+    juce::ScopedNoDenormals noDenormals;
+    const int numCh = buffer.getNumChannels();
+    const int numSamples = buffer.getNumSamples();
 
     auto pv = [this] (const char* id) { return apvts.getRawParameterValue (id)->load(); };
 
