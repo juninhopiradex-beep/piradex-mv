@@ -11,7 +11,6 @@ PiradexMVAudioProcessor::PiradexMVAudioProcessor()
                         .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMS", createLayout())
 {
-    lic::initGate();   // inicializa o estado da licença na thread de mensagens
 }
 
 juce::StringArray PiradexMVAudioProcessor::paramIDs()
@@ -187,7 +186,7 @@ void PiradexMVAudioProcessor::processChannels (float* const* chans, int numCh, i
 void PiradexMVAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     // Bloqueado (a partir de 01/01/2027 sem senha válida): áudio passa transparente.
-    if (! lic::isUnlockedGate())
+    if (! licWatcher.unlocked())
         return;
 
     processAudio (buffer);

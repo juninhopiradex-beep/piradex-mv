@@ -1,4 +1,5 @@
 #pragma once
+#include "LicenseGate.h"
 #include <JuceHeader.h>
 #include "MV2DSP.h"
 #include "MasterDSP.h"
@@ -22,6 +23,7 @@ public:
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
+    bool isLicensed() const noexcept { return licWatcher.unlocked(); }
 
     const juce::String getName() const override { return JucePlugin_Name; }
     bool acceptsMidi() const override  { return false; }
@@ -38,6 +40,7 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    lic::Watcher licWatcher;
     juce::AudioProcessorValueTreeState apvts;
 
     // meters (lidos pela UI, sem locks)
